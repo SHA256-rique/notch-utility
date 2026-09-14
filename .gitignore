@@ -1,0 +1,22 @@
+# Swift Package Manager
+.build/
+.swiftpm/
+Package.resolved
+
+# Assembled app bundle + release artifacts
+dist/
+*.app
+*.dmg
+*.zip
+
+# Benchmarks write raw samples here
+docs/benchmarks/raw/
+
+# macOS
+.DS_Store
+*.xcuserdatad
+xcuserdata/
+
+# Editor
+.vscode/
+*.swp

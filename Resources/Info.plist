@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleName</key>
+	<string>NotchBuddy</string>
+	<key>CFBundleDisplayName</key>
+	<string>NotchBuddy</string>
+	<key>CFBundleExecutable</key>
+	<string>NotchBuddy</string>
+	<key>CFBundleIdentifier</key>
+	<string>com.notchbuddy.app</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>1.0.0</string>
+	<key>CFBundleVersion</key>
+	<string>1</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>14.0</string>
+
+	<!-- No Dock icon, no menu bar takeover. The app lives in the notch plus a
+	     status-bar item. See docs/decisions/0011-lsuielement-accessory-app.md -->
+	<key>LSUIElement</key>
+	<true/>
+
+	<key>NSHighResolutionCapable</key>
+	<true/>
+
+	<!-- Usage strings. macOS kills the process outright if a permission is
+	     requested without the matching string, so these must exist even for
+	     features the user may never enable. -->
+	<key>NSCalendarsUsageDescription</key>
+	<string>NotchBuddy shows your next event in the Calendar tab. Nothing is uploaded; the calendar store is only opened while that tab is visible.</string>
+	<key>NSCalendarsFullAccessUsageDescription</key>
+	<string>NotchBuddy shows your next event in the Calendar tab. Nothing is uploaded; the calendar store is only opened while that tab is visible.</string>
+	<key>NSRemindersUsageDescription</key>
+	<string>NotchBuddy can surface due reminders alongside calendar events.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Used only to pick a weather location for the Weather widget. Your coordinates are rounded before being sent to the weather service.</string>
+	<key>NSAppleEventsUsageDescription</key>
+	<string>Used to open files and apps from the Launch widget.</string>
+	<key>NSDesktopFolderUsageDescription</key>
+	<string>Used when you drop files onto the notch for conversion.</string>
+	<key>NSDocumentsFolderUsageDescription</key>
+	<string>Used when you drop files onto the notch for conversion.</string>
+	<key>NSDownloadsFolderUsageDescription</key>
+	<string>Used when you drop files onto the notch for conversion.</string>
+
+	<!-- Loopback only; we never make plaintext connections to remote hosts.
+	     The LLM providers and the weather API are all HTTPS. -->
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
+</dict>
+</plist>
