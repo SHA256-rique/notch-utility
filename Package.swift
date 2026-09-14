@@ -35,6 +35,16 @@ let package = Package(
                 .linkedFramework("UserNotifications"),
                 .linkedFramework("AVFoundation")
             ]
+        ),
+        // Tests cover the parts that are pure logic and therefore genuinely
+        // testable without a window server: the polling hub's coalescing, the
+        // arbitration rule, the VT parser, the JSON-path resolver and the
+        // snippet store's retention rules. UI and IOKit paths are verified by
+        // running the app, not mocked into meaninglessness.
+        .testTarget(
+            name: "NotchBuddyTests",
+            dependencies: ["NotchBuddy"],
+            path: "Tests/NotchBuddyTests"
         )
     ]
 )
