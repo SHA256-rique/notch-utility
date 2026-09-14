@@ -64,7 +64,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // than no toggle.
         Settings.shared.data.launchAtLogin = LaunchAtLogin.isEnabled
 
+        applyBenchmarkLaunchArguments()
+
         Log.panel.info("NotchBuddy launched")
+    }
+
+    /// `--bench-tab <id>` opens and pins a tab at launch.
+    ///
+    /// This exists so the expanded-state figures in docs/BENCHMARKS.md are
+    /// reproducible from a script rather than depending on someone hovering the
+    /// notch at the right moment. Benchmarks that cannot be re-run are just
+    /// claims, and the whole point of publishing them is that a reader can
+    /// check them.
+    ///
+    /// It changes nothing about normal launches -- with no argument, nothing
+    /// here runs.
+    private func applyBenchmarkLaunchArguments() {
+        let arguments = ProcessInfo.processInfo.arguments
+        guard let index = arguments.firstIndex(of: "--bench-tab"),
+              index + 1 < arguments.count,
+              let tab = TabID(rawValue: arguments[index + 1]) else { return }
+        Log.panel.info("benchmark mode: pinning \(tab.rawValue, privacy: .public)")
+        NotchPanelController.shared.togglePin()
+        NotchPanelController.shared.expand(selecting: .builtin(tab))
     }
 
     func applicationWillTerminate(_ notification: Notification) {

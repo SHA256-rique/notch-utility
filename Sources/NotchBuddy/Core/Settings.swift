@@ -150,8 +150,12 @@ struct SettingsData: Codable {
 
     var homeWidgets: [HomeWidgetKind] = [.systemRings, .soundLight, .screenTime, .weather, .launch]
     var launchShortcuts: [String] = []      // file:// paths to .app bundles
-    var weatherLatitude: Double = .nan
-    var weatherLongitude: Double = .nan
+    // Optional, not a NaN sentinel: JSONEncoder refuses to encode Double.nan,
+    // which would silently break *all* settings persistence for any user who
+    // hadn't set a location. Caught by a round-trip test; see
+    // docs/learning/05-bugs-the-tests-caught.md
+    var weatherLatitude: Double? = nil
+    var weatherLongitude: Double? = nil
     var weatherPlaceName: String = ""
     var weatherUseCelsius: Bool = true
     var customMetricConfig: CustomTabConfig? = nil
