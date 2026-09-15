@@ -16,6 +16,14 @@ import Foundation
 /// that do not offer a hook, and its findings are surfaced to the user as
 /// "best-effort" confidence rather than presented as certainty.
 ///
+/// **This is not a Claude Code feature.** The badge exists for *any* CLI that
+/// has stopped and is waiting on a human. Claude Code is listed first only
+/// because it is the one with a hook, and therefore the one where attribution
+/// can be exact; Codex, Aider, Gemini CLI and a plain `rm -i` all reach the
+/// same UI through the generic rules below. Adding a tool means adding a
+/// pattern here and nothing else -- no new transport, no new view, no new
+/// setting.
+///
 /// When adding a pattern:
 ///   * Anchor on the least decorative part of the sentence.
 ///   * Avoid matching anything that could appear in ordinary output (a pattern
@@ -39,6 +47,33 @@ enum ApprovalPatterns {
                 detailRegex: #"(?m)^\s*[│|]?\s*(?:\$|>)\s*(.+)$"#),
         Pattern(source: "Claude Code",
                 regex: #"(?i)\bclaude\b.{0,80}\bneeds? your permission\b"#,
+                detailRegex: nil),
+
+        // --- Codex CLI ----------------------------------------------------
+        // OpenAI's Codex CLI asks before running a command and before applying
+        // a patch, with the command echoed on its own line.
+        Pattern(source: "Codex",
+                regex: #"(?i)\bcodex\b.{0,60}\b(wants to|would like to)\b"#,
+                detailRegex: #"(?m)^\s*[>$]\s*(.+)$"#),
+        Pattern(source: "Codex",
+                regex: #"(?i)\ballow command\b|\brun this command\?"#,
+                detailRegex: #"(?m)^\s*[>$]\s*(.+)$"#),
+        Pattern(source: "Codex",
+                regex: #"(?i)\bapply (this )?patch\?"#,
+                detailRegex: nil),
+
+        // --- Other coding agents -----------------------------------------
+        Pattern(source: "Aider",
+                regex: #"(?i)\bapplied edit to\b.{0,80}\?\s*\(y"#,
+                detailRegex: nil),
+        Pattern(source: "Gemini CLI",
+                regex: #"(?i)\ballow execution of\b"#,
+                detailRegex: #"(?m)^\s*[>$]\s*(.+)$"#),
+        Pattern(source: "Agent",
+                regex: #"(?i)\bwaiting for (your )?(approval|confirmation)\b"#,
+                detailRegex: nil),
+        Pattern(source: "Agent",
+                regex: #"(?i)\bpress\s+(y|enter)\s+to\s+(continue|approve|confirm)\b"#,
                 detailRegex: nil),
 
         // --- Generic agent / CLI prompts ---------------------------------

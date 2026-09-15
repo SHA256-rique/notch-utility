@@ -154,17 +154,89 @@ final class TerminalEmulator {
         }
         cursorRow = min(cursorRow, lines.count - 1)
         cursorColumn = min(cursorColumn, c - 1)
+        clampScrollOffset()
         generation &+= 1
     }
 
-    /// The window of lines that should be rendered: the last `rows` of the
-    /// buffer, which is where the cursor lives.
-    var visibleLines: ArraySlice<Line> {
-        lines.count <= rows ? lines[...] : lines[(lines.count - rows)...]
+    // MARK: - Viewport
+
+    /// How many lines the viewport is scrolled back from the live bottom.
+    ///
+    /// Held here rather than in the view because it has to be clamped against
+    /// the buffer, and the buffer is what trims itself when scrollback overflows.
+    /// A view-owned offset would silently drift every time a line rolled off the
+    /// top during a long build.
+    private(set) var scrollOffset = 0
+
+    var maxScrollOffset: Int { max(0, lines.count - rows) }
+    var isScrolledBack: Bool { scrollOffset > 0 }
+
+    /// Index into `lines` of the first row currently rendered.
+    var firstVisibleLineIndex: Int {
+        max(0, lines.count - rows - scrollOffset)
     }
 
+    /// The window of lines that should be rendered. Normally the last `rows` of
+    /// the buffer, where the cursor lives; further back when scrolled.
+    var visibleLines: ArraySlice<Line> {
+        let start = firstVisibleLineIndex
+        let end = min(lines.count, start + rows)
+        return lines[start..<end]
+    }
+
+    /// The cursor's row within the rendered window, or a negative/overflowing
+    /// value when it is scrolled out of sight -- which the renderer reads as
+    /// "do not draw a cursor".
     var visibleCursorRow: Int {
-        lines.count <= rows ? cursorRow : cursorRow - (lines.count - rows)
+        cursorRow - firstVisibleLineIndex
+    }
+
+    /// Scrolls the viewport. Positive is back into history.
+    ///
+    /// The alternate screen has no scrollback by definition -- `less` and `vim`
+    /// draw their own scrolling -- so this is a no-op there rather than showing
+    /// the primary buffer bleeding through underneath.
+    func scroll(by delta: Int) {
+        guard !isAlternateScreen else { return }
+        let next = max(0, min(maxScrollOffset, scrollOffset + delta))
+        guard next != scrollOffset else { return }
+        scrollOffset = next
+        generation &+= 1
+    }
+
+    func scrollToBottom() {
+        guard scrollOffset != 0 else { return }
+        scrollOffset = 0
+        generation &+= 1
+    }
+
+    /// Absolute buffer coordinates, used by selection so that a selection made
+    /// before a build scrolled the screen still covers the same characters.
+    struct Position: Equatable, Comparable {
+        var line: Int
+        var column: Int
+        static func < (a: Position, b: Position) -> Bool {
+            a.line == b.line ? a.column < b.column : a.line < b.line
+        }
+    }
+
+    /// Text between two absolute positions, inclusive of `from`, exclusive of
+    /// `to`. Trailing blanks on each line are dropped, because a terminal pads
+    /// every row out to the full width and pasting eighty spaces after each line
+    /// is never what anyone wanted.
+    func text(from: Position, to: Position) -> String {
+        let (start, end) = from <= to ? (from, to) : (to, from)
+        guard start.line < lines.count else { return "" }
+        var output: [String] = []
+        for index in start.line...min(end.line, lines.count - 1) {
+            let cells = lines[index].cells
+            let lower = index == start.line ? min(start.column, cells.count) : 0
+            let upper = index == end.line ? min(end.column + 1, cells.count) : cells.count
+            guard lower < upper else { output.append(""); continue }
+            let text = String(cells[lower..<upper].map(\.character))
+            output.append(String(text.reversed().drop { $0 == " " }.reversed()))
+        }
+        return output.joined(separator: "\n")
     }
 
     func reset() {
@@ -174,6 +246,7 @@ final class TerminalEmulator {
         state = .ground
         isAlternateScreen = false
         savedPrimary = nil
+        scrollOffset = 0
         generation &+= 1
     }
 
@@ -426,6 +499,13 @@ final class TerminalEmulator {
         lines.insert(Line(cells: Array(repeating: .blank, count: columns)), at: top)
     }
 
+    /// Keeps the viewport inside the buffer after anything that can change
+    /// `lines.count` -- a resize, or scrollback rolling off the top during a
+    /// long build. Without it a scrolled-back viewport silently drifts.
+    private func clampScrollOffset() {
+        scrollOffset = max(0, min(maxScrollOffset, scrollOffset))
+    }
+
     /// The hard memory cap. Without this, `cat bigfile` is an OOM.
     private func trimScrollback() {
         guard !isAlternateScreen else {
@@ -438,7 +518,12 @@ final class TerminalEmulator {
             let excess = lines.count - limit
             lines.removeFirst(excess)
             cursorRow = max(0, cursorRow - excess)
+            // The lines the viewport was anchored to have gone; shrink the
+            // offset by the same amount so the user keeps looking at the same
+            // text rather than being scrolled further back.
+            scrollOffset = max(0, scrollOffset - excess)
         }
+        clampScrollOffset()
     }
 
     private func eraseInDisplay(_ mode: Int) {

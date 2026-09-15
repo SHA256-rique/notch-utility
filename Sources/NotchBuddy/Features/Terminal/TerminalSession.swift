@@ -84,6 +84,12 @@ final class TerminalSession: ObservableObject {
         generation &+= 1
     }
 
+    /// Publishes a redraw for a change the emulator made that did not come from
+    /// the pty -- scrolling the viewport, say. The coalescing path in
+    /// `scheduleRedraw` exists to throttle *output*; a user-driven change should
+    /// land on the next frame, not up to a frame later.
+    func bumpGeneration() { generation &+= 1 }
+
     func send(_ text: String) { pty.write(text) }
     func send(_ data: Data) { pty.write(data) }
 
