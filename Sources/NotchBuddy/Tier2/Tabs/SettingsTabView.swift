@@ -3,7 +3,7 @@ import Carbon.HIToolbox
 
 struct SettingsTabView: View {
     enum Page: String, CaseIterable, Identifiable {
-        case general = "General", power = "Power", tabs = "Tabs"
+        case general = "General", power = "Power", tabs = "Tabs", widgets = "Widgets"
         case ai = "AI", approvals = "Approvals", about = "About"
         var id: String { rawValue }
     }
@@ -26,6 +26,7 @@ struct SettingsTabView: View {
                     case .general:   GeneralSettings()
                     case .power:     PowerSettings()
                     case .tabs:      TabsSettings()
+                    case .widgets:   WidgetSettings()
                     case .ai:        AISettings()
                     case .approvals: ApprovalStatusView()
                     case .about:     AboutSettings()

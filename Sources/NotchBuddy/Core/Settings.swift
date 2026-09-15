@@ -80,10 +80,21 @@ struct CustomTabConfig: Codable, Identifiable, Equatable {
     var snippetTagFilter: String = ""
 }
 
-/// A home-grid widget the user can add/remove/reorder.
+/// A home-grid widget the user can add, remove and drag to reorder.
+///
+/// These are deliberately *named* widgets, not instances of one generic
+/// "number from a URL" tile. Revenue knows what a paid customer is; Visitors
+/// knows what a 30-day sparkline is; Claude usage knows what a day streak is.
+/// Only their data sources are configurable -- their shape is not, because a
+/// tile that renders whatever the endpoint happened to return is a debugging
+/// tool, not a dashboard.
 enum HomeWidgetKind: String, Codable, CaseIterable, Identifiable {
-    case screenTime, weather, soundLight, launch, systemRings, customMetric
+    case systemRings, soundLight, screenTime, revenue, claudeUsage
+    case weather, nowPlaying, quickTimer, dailyWord, launch
+    case visitors, customMetric
+
     var id: String { rawValue }
+
     var displayName: String {
         switch self {
         case .screenTime:   return "Screen Time"
@@ -92,8 +103,15 @@ enum HomeWidgetKind: String, Codable, CaseIterable, Identifiable {
         case .launch:       return "Launch"
         case .systemRings:  return "System"
         case .customMetric: return "Custom Metric"
+        case .revenue:      return "Revenue"
+        case .visitors:     return "Visitors"
+        case .claudeUsage:  return "Claude Usage"
+        case .nowPlaying:   return "Now Playing"
+        case .quickTimer:   return "Quick Timer"
+        case .dailyWord:    return "Word of the Day"
         }
     }
+
     var symbol: String {
         switch self {
         case .screenTime:   return "hourglass"
@@ -102,10 +120,67 @@ enum HomeWidgetKind: String, Codable, CaseIterable, Identifiable {
         case .launch:       return "square.grid.2x2"
         case .systemRings:  return "cpu"
         case .customMetric: return "chart.bar"
+        case .revenue:      return "dollarsign.circle"
+        case .visitors:     return "person.2.wave.2"
+        case .claudeUsage:  return "sparkles.rectangle.stack"
+        case .nowPlaying:   return "music.note"
+        case .quickTimer:   return "timer"
+        case .dailyWord:    return "character.book.closed"
         }
     }
+
     /// Widgets that span two grid columns because their content needs the width.
-    var isWide: Bool { self == .screenTime }
+    var isWide: Bool {
+        switch self {
+        case .screenTime, .claudeUsage, .nowPlaying, .visitors: return true
+        default: return false
+        }
+    }
+
+    /// Everything except the widgets the brief says must be opt-in. Visitors is
+    /// opt-in because most people have no analytics endpoint to point it at, and
+    /// a permanently-unconfigured tile on the default grid is worse than no
+    /// tile. Custom Metric is opt-in for the same reason.
+    static let defaultGrid: [HomeWidgetKind] = [
+        .systemRings, .soundLight, .screenTime, .revenue,
+        .claudeUsage, .weather, .nowPlaying, .quickTimer, .dailyWord, .launch
+    ]
+}
+
+/// Stripe-backed revenue. The secret key lives in Keychain under
+/// `stripe.secret`; only the non-secret shape of the connection is stored here.
+struct StripeConfig: Codable, Equatable {
+    /// Overridable so a user can point this at their own proxy rather than
+    /// putting a live Stripe secret key on a laptop -- which is the right thing
+    /// to do and which we should not make harder than the naive path.
+    var apiBase: String = "https://api.stripe.com/v1"
+    /// Stripe reports minor units; this is only ever used for display.
+    var currencySymbol: String = "$"
+    /// Live-mode keys see live charges. A test key is the safe way to try it.
+    var includeRefunded: Bool = false
+}
+
+/// Visitors. There is no universal "visitors" API, so the *source* is
+/// configurable -- but the widget itself is not generic: it renders a live
+/// count, a percent change and a 30-day sparkline, and nothing else.
+struct VisitorsConfig: Codable, Equatable {
+    var url: String = ""
+    var headers: [String: String] = [:]
+    /// Dot-paths into the response, resolved by `MetricFetcher.value(at:in:)`.
+    var currentPath: String = "results.visitors.value"
+    var previousPath: String = "results.visitors.previous"
+    /// Must resolve to an array. Elements may be plain numbers or objects, in
+    /// which case `seriesValuePath` is applied to each element.
+    var seriesPath: String = "results.timeseries"
+    var seriesValuePath: String = "visitors"
+    var refreshSeconds: Double = 600
+}
+
+/// Word of the day. Multiple languages can be enabled at once; the widget
+/// shows one card per enabled language.
+struct DailyWordConfig: Codable, Equatable {
+    var languages: [String] = [WordLanguage.spanish.rawValue]
+    var showExample: Bool = true
 }
 
 struct SettingsData: Codable {
@@ -148,7 +223,10 @@ struct SettingsData: Codable {
 
     // MARK: Home grid
 
-    var homeWidgets: [HomeWidgetKind] = [.systemRings, .soundLight, .screenTime, .weather, .launch]
+    var homeWidgets: [HomeWidgetKind] = HomeWidgetKind.defaultGrid
+    /// Bumped when new widgets ship, so an existing grid gains them once
+    /// instead of either never seeing them or being reset to defaults.
+    var homeGridVersion: Int = 0
     var launchShortcuts: [String] = []      // file:// paths to .app bundles
     // Optional, not a NaN sentinel: JSONEncoder refuses to encode Double.nan,
     // which would silently break *all* settings persistence for any user who
@@ -159,6 +237,23 @@ struct SettingsData: Codable {
     var weatherPlaceName: String = ""
     var weatherUseCelsius: Bool = true
     var customMetricConfig: CustomTabConfig? = nil
+    var stripe = StripeConfig()
+    var visitors = VisitorsConfig()
+    var dailyWord = DailyWordConfig()
+
+    // MARK: Water
+
+    var waterNudgesEnabled: Bool = false
+    var waterIntervalMinutes: Double = 45
+    var waterGlassGoal: Int = 8
+
+    // MARK: Calendar
+
+    /// Apple's EventKit and Google can both be on at once; the agenda merges
+    /// them. Google needs its own OAuth client -- see `GoogleCalendarService`.
+    var calendarUseAppleEventKit: Bool = true
+    var calendarUseGoogle: Bool = false
+    var googleOAuthClientID: String = ""
 
     // MARK: Snippets / clipboard
 
@@ -205,6 +300,7 @@ final class Settings: ObservableObject {
         if loaded.globalHotKeyModifiers == 0 {
             loaded.globalHotKeyModifiers = HotKeyCenter.defaultModifiers
         }
+        Self.migrateHomeGrid(&loaded)
         self.data = loaded
         ThemeManager.shared.apply(loaded.theme)
     }
@@ -212,4 +308,26 @@ final class Settings: ObservableObject {
     var theme: Theme { ThemeManager.shared.theme }
 
     func flush() { store.saveNow(data) }
+
+    /// Appends widgets that shipped after the user's grid was last written,
+    /// preserving whatever order they had arranged. The alternative -- resetting
+    /// to `defaultGrid` -- would throw away a deliberate arrangement every time
+    /// we add a tile, and silently doing nothing would mean an existing user
+    /// never discovers a new widget exists.
+    ///
+    /// Opt-in widgets are excluded by construction: `defaultGrid` does not
+    /// contain them, so Visitors stays off the grid until it is added by hand,
+    /// exactly as the brief requires.
+    private static func migrateHomeGrid(_ data: inout SettingsData) {
+        let currentVersion = 1
+        guard data.homeGridVersion < currentVersion else { return }
+        // A first run has no stored file at all, so the grid is already the
+        // default; only stamp the version in that case.
+        if !data.homeWidgets.isEmpty {
+            for kind in HomeWidgetKind.defaultGrid where !data.homeWidgets.contains(kind) {
+                data.homeWidgets.append(kind)
+            }
+        }
+        data.homeGridVersion = currentVersion
+    }
 }

@@ -4,7 +4,7 @@ import SwiftUI
 /// persisted to JSON, and a raw-value string survives reordering and removal of
 /// cases in a way an Int would not.
 enum TabID: String, Codable, CaseIterable, Identifiable, Hashable {
-    case home, time, snippets, notes, calendar, files, api, docker, terminal, ai, message, settings
+    case home, time, screenTime, snippets, notes, calendar, files, api, docker, terminal, ai, message, settings
     var id: String { rawValue }
 
     static let defaultOrder: [String] = TabID.allCases.map(\.rawValue)
@@ -13,6 +13,7 @@ enum TabID: String, Codable, CaseIterable, Identifiable, Hashable {
         switch self {
         case .home: return "Home"
         case .time: return "Time"
+        case .screenTime: return "Screen Time"
         case .snippets: return "Snippets"
         case .notes: return "Notes"
         case .calendar: return "Calendar"
@@ -30,6 +31,7 @@ enum TabID: String, Codable, CaseIterable, Identifiable, Hashable {
         switch self {
         case .home: return "square.grid.2x2.fill"
         case .time: return "timer"
+        case .screenTime: return "hourglass"
         case .snippets: return "doc.on.clipboard.fill"
         case .notes: return "note.text"
         case .calendar: return "calendar"
@@ -47,6 +49,7 @@ enum TabID: String, Codable, CaseIterable, Identifiable, Hashable {
         switch self {
         case .home: return .home
         case .time: return .time
+        case .screenTime: return .home
         case .snippets: return .snippets
         case .notes: return .notes
         case .calendar: return .calendar

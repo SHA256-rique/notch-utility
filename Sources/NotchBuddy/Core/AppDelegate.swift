@@ -43,6 +43,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // 3. Persisted state.
         SnippetStore.shared.start()
         TimeEngine.shared.start()
+        WaterTracker.shared.start()
 
         // 4. The panel.
         NotchPanelController.shared.start()
@@ -95,6 +96,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Settings.shared.flush()
         SnippetStore.shared.flush()
         TimeEngine.shared.flush()
+        WaterTracker.shared.flush()
+        DailyWordService.shared.flush()
         NotesStore.shared.flush()
         AppUsageTracker.shared.flush()
 

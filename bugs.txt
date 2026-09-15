@@ -1,0 +1,5 @@
+1. when opening shortcuts , cursor should turn to hand pointer
+2. also add storage space available and clear bin option to remove items from bin
+3. for the part i mentioned that moving the notification text from right to left , we can also have a normal prompt notification and quickly fade away with animation like we have in smartphones
+
+make it more aesthetic , if somehthing doesn't need full page , merge with others and if it needs to expand , open it up like a new tab like we do in vscode and then user can remove the tab to exit

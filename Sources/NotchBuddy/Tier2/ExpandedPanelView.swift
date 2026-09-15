@@ -119,6 +119,7 @@ struct ExpandedPanelView: View {
         switch id {
         case .home:     HomeTabView()
         case .time:     TimeTabView()
+        case .screenTime: ScreenTimeTabView()
         case .snippets: SnippetsTabView()
         case .notes:    NotesTabView()
         case .calendar: CalendarTabView()

@@ -4,7 +4,7 @@ import SwiftUI
 /// specifies. They are four views over one engine, not four features.
 struct TimeTabView: View {
     enum Section: String, CaseIterable, Identifiable {
-        case timers = "Timers", alarms = "Alarms", pomodoro = "Pomodoro", stopwatch = "Stopwatch"
+        case timers = "Timers", alarms = "Alarms", pomodoro = "Pomodoro", stopwatch = "Stopwatch", water = "Water"
         var id: String { rawValue }
         var symbol: String {
             switch self {
@@ -12,6 +12,7 @@ struct TimeTabView: View {
             case .alarms: return "alarm"
             case .pomodoro: return "brain.head.profile"
             case .stopwatch: return "stopwatch"
+            case .water: return "drop.fill"
             }
         }
     }
@@ -39,6 +40,7 @@ struct TimeTabView: View {
                 case .alarms:    AlarmsSection()
                 case .pomodoro:  PomodoroSection()
                 case .stopwatch: StopwatchSection()
+                case .water:     WaterSection()
                 }
             }
             .animation(Motion.tabSwitch, value: section)
@@ -446,5 +448,152 @@ struct StopwatchSection: View {
                 }
             }
         }
+    }
+}
+
+// MARK: - Water
+
+/// The fifth member of the Time group. It sits here rather than on Home because
+/// what it actually is, is a recurring interval with a tally attached -- the
+/// same shape as the other four -- and because someone setting a pomodoro
+/// rhythm and someone setting a hydration rhythm are the same person on the
+/// same afternoon.
+struct WaterSection: View {
+    @EnvironmentObject private var themes: ThemeManager
+    @ObservedObject private var tracker = WaterTracker.shared
+    @ObservedObject private var settings = Settings.shared
+
+    var body: some View {
+        let theme = themes.theme
+        ScrollView {
+            VStack(spacing: 10) {
+                NBCard(tint: .time) {
+                    HStack(spacing: 14) {
+                        // The glass fills as the tally rises. A ring here would
+                        // match the other Time sections, but water filling a
+                        // vessel is the one metaphor worth breaking the pattern
+                        // for -- it reads at a glance with no number at all.
+                        glassGauge(theme)
+
+                        VStack(alignment: .leading, spacing: 4) {
+                            HStack(alignment: .firstTextBaseline, spacing: 5) {
+                                Text("\(tracker.glasses)")
+                                    .font(.system(size: 30, weight: .semibold, design: .rounded))
+                                    .monospacedDigit()
+                                    .foregroundStyle(theme.primaryText)
+                                Text("of \(tracker.goal) glasses")
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(theme.secondaryText)
+                            }
+
+                            if tracker.dailyAverage > 0 {
+                                Text(String(format: "Your daily average is %.1f.", tracker.dailyAverage))
+                                    .font(.system(size: 9)).foregroundStyle(theme.secondaryText)
+                            }
+
+                            HStack(spacing: 5) {
+                                Button {
+                                    tracker.addGlass()
+                                } label: {
+                                    Label("Add a glass", systemImage: "plus")
+                                        .font(.system(size: 11, weight: .medium))
+                                }
+                                .buttonStyle(NBButtonStyle(tint: theme.tint(.time), filled: true, compact: true))
+
+                                Button {
+                                    tracker.removeGlass()
+                                } label: { Image(systemName: "minus").font(.system(size: 10, weight: .bold)) }
+                                .buttonStyle(NBButtonStyle(tint: theme.secondaryText, compact: true))
+                                .disabled(tracker.glasses == 0)
+
+                                Button("Reset") { tracker.resetToday() }
+                                    .buttonStyle(NBButtonStyle(tint: theme.secondaryText, compact: true))
+                                    .disabled(tracker.glasses == 0)
+                            }
+                        }
+                        Spacer()
+                    }
+                }
+
+                NBCard(tint: .time) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            NBSectionHeader(title: "Reminders")
+                            Toggle("", isOn: Binding(
+                                get: { settings.data.waterNudgesEnabled },
+                                set: { tracker.setNudges(enabled: $0) }))
+                                .labelsHidden().toggleStyle(.switch).controlSize(.mini)
+                        }
+
+                        HStack(spacing: 8) {
+                            Text("Every \(Int(settings.data.waterIntervalMinutes)) min")
+                                .font(.system(size: 11)).monospacedDigit()
+                                .foregroundStyle(settings.data.waterNudgesEnabled
+                                                 ? theme.primaryText : theme.secondaryText)
+                                .frame(width: 92, alignment: .leading)
+                            Slider(value: Binding(
+                                get: { settings.data.waterIntervalMinutes },
+                                set: { tracker.setInterval(minutes: $0) }),
+                                   in: 15...180, step: 5)
+                                .controlSize(.mini)
+                                .disabled(!settings.data.waterNudgesEnabled)
+                        }
+
+                        HStack(spacing: 8) {
+                            Stepper("Goal: \(settings.data.waterGlassGoal) glasses",
+                                    value: $settings.data.waterGlassGoal, in: 1...20)
+                                .font(.system(size: 11))
+                            Spacer()
+                            if let next = tracker.nextNudge, settings.data.waterNudgesEnabled {
+                                Text("next at \(next.formatted(date: .omitted, time: .shortened))")
+                                    .font(.system(size: 9)).foregroundStyle(theme.secondaryText)
+                            }
+                        }
+
+                        Text("The nudge is a one-shot wakeup, re-armed after each fire — not a poll. With reminders off, nothing is scheduled at all. Logging a glass restarts the interval.")
+                            .font(.system(size: 9)).foregroundStyle(theme.secondaryText)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+
+                NBCard(tint: .time) {
+                    VStack(alignment: .leading, spacing: 7) {
+                        NBSectionHeader(title: "Last 14 days")
+                        HStack(alignment: .bottom, spacing: 4) {
+                            ForEach(tracker.recentDays, id: \.day) { entry in
+                                let peak = max(tracker.goal,
+                                               tracker.recentDays.map(\.glasses).max() ?? 1)
+                                RoundedRectangle(cornerRadius: 2, style: .continuous)
+                                    .fill(entry.glasses >= tracker.goal
+                                          ? theme.tint(.time)
+                                          : theme.tint(.time).opacity(0.35))
+                                    .frame(height: max(2, 40 * CGFloat(Double(entry.glasses) / Double(peak))))
+                            }
+                        }
+                        .frame(height: 40)
+                        Text("A full-height bar is a day you hit the goal.")
+                            .font(.system(size: 9)).foregroundStyle(theme.secondaryText)
+                    }
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.bottom, 12)
+        }
+    }
+
+    private func glassGauge(_ theme: Theme) -> some View {
+        let shape = UnevenRoundedRectangle(
+            topLeadingRadius: 3, bottomLeadingRadius: 12,
+            bottomTrailingRadius: 12, topTrailingRadius: 3, style: .continuous)
+        return ZStack(alignment: .bottom) {
+            shape.fill(Color.white.opacity(0.06))
+            shape.fill(theme.tint(.time).opacity(0.75))
+                .frame(height: max(3, 62 * CGFloat(tracker.progress)))
+                .themeGlow(theme.tint(.time), radius: theme.glowRadius(6))
+            shape.stroke(theme.tint(.time).opacity(0.5), lineWidth: 1)
+        }
+        .frame(width: 42, height: 62)
+        .clipShape(shape)
+        .animation(Motion.sheet, value: tracker.glasses)
     }
 }
