@@ -28,16 +28,21 @@ struct HomeTabView: View {
 
     var body: some View {
         let theme = themes.theme
-        ZStack {
-            grid(theme)
-                .opacity(detail == nil ? 1 : 0)
-                .disabled(detail != nil)
-
+        // A `switch`, not a ZStack with an opacity-0 grid underneath. Keeping
+        // the grid mounted behind the detail view would leave every tile's
+        // poller running -- including a second Stripe client alongside the
+        // detail's own -- which is precisely the pattern `ExpandedPanelView`
+        // refuses for tabs. The same rule has to hold one level down or it is
+        // not a rule.
+        Group {
             if let detail {
                 detailView(detail)
                     .transition(.asymmetric(
                         insertion: .offset(x: 30).combined(with: .opacity),
                         removal: .offset(x: 30).combined(with: .opacity)))
+            } else {
+                grid(theme)
+                    .transition(.opacity)
             }
         }
         .animation(Motion.sheet, value: detail)

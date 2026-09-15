@@ -138,7 +138,14 @@ final class NotchArbiter: ObservableObject {
         claims.values.filter { $0.priority == .ambient }.sorted { $0.rank < $1.rank }
     }
 
-    /// The single claim the collapsed pill should render as its focal item.
+    /// The single claim the collapsed pill renders as its focal item, when it
+    /// has to pick exactly one.
+    ///
+    /// The pill itself no longer uses this: it draws the persistent claim and
+    /// the transient as two layers, so that a toast overlays a running timer
+    /// rather than replacing it -- which is what the rule above actually says.
+    /// This stays because "what would the notch show if it could show one
+    /// thing" is the question the status-bar menu and the tests ask.
     var focus: PillClaim? {
         transient ?? allPersistent.first
     }
