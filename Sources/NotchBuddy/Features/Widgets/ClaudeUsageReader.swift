@@ -297,7 +297,7 @@ final class ClaudeUsageReader: ObservableObject {
 
     // MARK: - Formatting
 
-    static func compactTokens(_ value: Int) -> String {
+    nonisolated static func compactTokens(_ value: Int) -> String {
         if value >= 1_000_000_000 { return String(format: "%.1fB", Double(value) / 1_000_000_000) }
         if value >= 1_000_000 { return String(format: "%.1fM", Double(value) / 1_000_000) }
         if value >= 1_000 { return String(format: "%.1fk", Double(value) / 1_000) }
@@ -305,7 +305,7 @@ final class ClaudeUsageReader: ObservableObject {
     }
 
     /// Single-letter weekday for the bar chart's axis.
-    static func weekdayInitial(for dayKey: String) -> String {
+    nonisolated static func weekdayInitial(for dayKey: String) -> String {
         let parser = DateFormatter()
         parser.dateFormat = "yyyy-MM-dd"
         guard let date = parser.date(from: dayKey) else { return "" }

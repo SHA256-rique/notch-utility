@@ -244,14 +244,14 @@ final class StripeClient: ObservableObject {
     // MARK: - Formatting
 
     /// Compact money: `$4.2k` on a tile, full precision in the detail view.
-    static func compact(_ value: Double, symbol: String) -> String {
+    nonisolated static func compact(_ value: Double, symbol: String) -> String {
         let magnitude = abs(value)
         if magnitude >= 1_000_000 { return symbol + String(format: "%.1fM", value / 1_000_000) }
         if magnitude >= 1_000 { return symbol + String(format: "%.1fk", value / 1_000) }
         return symbol + String(format: magnitude < 100 ? "%.2f" : "%.0f", value)
     }
 
-    static func full(_ value: Double, currencyCode: String) -> String {
+    nonisolated static func full(_ value: Double, currencyCode: String) -> String {
         let formatter = NumberFormatter()
         formatter.numberStyle = .currency
         formatter.currencyCode = currencyCode

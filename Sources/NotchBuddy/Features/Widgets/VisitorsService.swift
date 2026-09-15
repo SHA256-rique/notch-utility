@@ -186,7 +186,10 @@ final class VisitorsService: ObservableObject {
         return Array(points.suffix(30))
     }
 
-    static func compact(_ value: Int) -> String {
+    /// `nonisolated` because it is arithmetic on an Int. Leaving a pure
+    /// formatter isolated to the main actor makes it unusable from a test, from
+    /// a background summariser, and from anywhere else it is obviously safe.
+    nonisolated static func compact(_ value: Int) -> String {
         if value >= 1_000_000 { return String(format: "%.1fM", Double(value) / 1_000_000) }
         if value >= 10_000 { return String(format: "%.0fk", Double(value) / 1_000) }
         if value >= 1_000 { return String(format: "%.1fk", Double(value) / 1_000) }

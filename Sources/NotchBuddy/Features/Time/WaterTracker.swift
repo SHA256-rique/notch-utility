@@ -191,9 +191,9 @@ final class WaterTracker: ObservableObject {
 
     private func persist() { store.save(model) }
 
-    static func today() -> String { key(Date()) }
+    nonisolated static func today() -> String { key(Date()) }
 
-    static func key(_ date: Date) -> String {
+    nonisolated static func key(_ date: Date) -> String {
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd"
         formatter.locale = Locale(identifier: "en_US_POSIX")

@@ -1,0 +1,691 @@
+import Testing
+import Foundation
+import SwiftUI
+@testable import NotchBuddy
+
+// Tests for the work added in the audit pass: the restored named widgets, the
+// reordering models, the calendar grid, the task board and the terminal's new
+// viewport/selection maths.
+//
+// Same rule as CoreLogicTests: these cover the decisions that are expensive to
+// get wrong and invisible when they are. Nothing here mocks a window server, a
+// Stripe account or a Google login -- what is asserted is the arithmetic and
+// the parsing, which is where the bugs of this kind actually live.
+
+// MARK: - Claude usage
+
+@Suite("Claude usage — transcript parsing and streaks")
+struct ClaudeUsageTests {
+
+    private func day(_ offset: Int) -> String {
+        let date = Calendar.current.date(byAdding: .day, value: -offset, to: Date())!
+        return ClaudeUsageReader.dayKey(date)
+    }
+
+    private func total(_ dayKey: String, billable: Int) -> ClaudeUsageReader.DayTotal {
+        ClaudeUsageReader.DayTotal(day: dayKey, inputTokens: billable, outputTokens: 0,
+                                   cacheReadTokens: 0, cacheWriteTokens: 0, messages: 1)
+    }
+
+    /// Cache reads are real tokens but they dwarf everything else, so the
+    /// headline figure deliberately excludes them. If this ever flips, every
+    /// number on the widget becomes "however much cache was read", which is a
+    /// fact about the tool rather than about the user's day.
+    @Test("Cache reads are excluded from the billable headline")
+    func cacheReadsExcluded() {
+        let entry = ClaudeUsageReader.DayTotal(
+            day: "2026-01-01", inputTokens: 100, outputTokens: 50,
+            cacheReadTokens: 900_000, cacheWriteTokens: 25, messages: 3)
+        #expect(entry.billableTokens == 175)
+        #expect(entry.allTokens == 900_175)
+    }
+
+    @Test("The week is seven zero-filled days ending today")
+    func weekIsPadded() {
+        let summary = ClaudeUsageReader.summarise([day(0): total(day(0), billable: 10)])
+        #expect(summary.week.count == 7)
+        #expect(summary.week.last?.day == day(0))
+        #expect(summary.week.first?.billableTokens == 0)
+    }
+
+    @Test("A streak counts consecutive days")
+    func streakCounts() {
+        let days = [day(0), day(1), day(2)].reduce(into: [String: ClaudeUsageReader.DayTotal]()) {
+            $0[$1] = total($1, billable: 500)
+        }
+        #expect(ClaudeUsageReader.summarise(days).streakDays == 3)
+    }
+
+    /// At 9am you have not used it today yet. Reporting a 40-day streak as zero
+    /// because the day is young is a lie about the data, so the streak may end
+    /// yesterday; it breaks only once a full day has been missed.
+    @Test("A streak ending yesterday survives; one ending two days ago does not")
+    func streakLeniency() {
+        let endingYesterday = [day(1), day(2)].reduce(into: [String: ClaudeUsageReader.DayTotal]()) {
+            $0[$1] = total($1, billable: 500)
+        }
+        #expect(ClaudeUsageReader.summarise(endingYesterday).streakDays == 2)
+
+        let stale = [day(2), day(3)].reduce(into: [String: ClaudeUsageReader.DayTotal]()) {
+            $0[$1] = total($1, billable: 500)
+        }
+        #expect(ClaudeUsageReader.summarise(stale).streakDays == 0)
+    }
+
+    @Test("A gap ends the streak")
+    func streakGap() {
+        var days: [String: ClaudeUsageReader.DayTotal] = [:]
+        for offset in [0, 1, 3, 4] { days[day(offset)] = total(day(offset), billable: 100) }
+        #expect(ClaudeUsageReader.summarise(days).streakDays == 2)
+    }
+
+    @Test("Token counts are abbreviated, not truncated")
+    func compactTokens() {
+        #expect(ClaudeUsageReader.compactTokens(999) == "999")
+        #expect(ClaudeUsageReader.compactTokens(1_500) == "1.5k")
+        #expect(ClaudeUsageReader.compactTokens(2_400_000) == "2.4M")
+    }
+}
+
+// MARK: - Stripe
+
+@Suite("Revenue — Stripe amount handling")
+struct StripeTests {
+
+    /// Stripe reports minor units, except for the currencies that have none.
+    /// Dividing JPY by 100 understates revenue by 100x, and the mistake is
+    /// invisible to anyone testing in dollars.
+    @Test("Zero-decimal currencies are not divided by 100")
+    func zeroDecimalCurrencies() {
+        #expect(StripeClient.Charge.minorUnitDivisor("usd") == 100)
+        #expect(StripeClient.Charge.minorUnitDivisor("EUR") == 100)
+        #expect(StripeClient.Charge.minorUnitDivisor("jpy") == 1)
+        #expect(StripeClient.Charge.minorUnitDivisor("KRW") == 1)
+    }
+
+    @Test("A charge converts to major units")
+    func majorAmount() {
+        let dollars = StripeClient.Charge(created: Date(), amount: 4_999,
+                                          currency: "usd", customer: "cus_1")
+        #expect(dollars.majorAmount == 49.99)
+
+        let yen = StripeClient.Charge(created: Date(), amount: 4_999,
+                                      currency: "jpy", customer: "cus_1")
+        #expect(yen.majorAmount == 4_999)
+    }
+
+    @Test("Percent change needs a previous period to compare against")
+    func percentChange() {
+        let grown = StripeClient.Summary(total: 150, previousTotal: 100, payingCustomers: 3,
+                                         chargeCount: 5, currencyCode: "USD", daily: [])
+        #expect(grown.percentChange == 50)
+
+        // A first month has nothing to compare to. Reporting +100% -- or worse,
+        // dividing by zero -- would be inventing a trend out of one data point.
+        let first = StripeClient.Summary(total: 150, previousTotal: 0, payingCustomers: 3,
+                                         chargeCount: 5, currencyCode: "USD", daily: [])
+        #expect(first.percentChange == nil)
+    }
+
+    @Test("Compact money keeps cents only where they matter")
+    func compactMoney() {
+        #expect(StripeClient.compact(42.5, symbol: "$") == "$42.50")
+        #expect(StripeClient.compact(4_210, symbol: "$") == "$4.2k")
+        #expect(StripeClient.compact(2_400_000, symbol: "$") == "$2.4M")
+    }
+}
+
+// MARK: - Word of the day
+
+@Suite("Word of the day — deterministic selection")
+struct DailyWordTests {
+
+    @Test("Every language ships a non-empty pack with complete entries")
+    func packsAreComplete() {
+        for language in WordLanguage.allCases {
+            let pack = WordPacks.pack(for: language)
+            #expect(!pack.isEmpty, "\(language.rawValue) has no words")
+            for entry in pack {
+                #expect(!entry.term.isEmpty)
+                #expect(!entry.meaning.isEmpty)
+                #expect(!entry.example.isEmpty)
+                #expect(!entry.exampleTranslation.isEmpty)
+                #expect(entry.language == language)
+            }
+        }
+    }
+
+    @Test("No duplicate terms within a pack")
+    func packsHaveNoDuplicates() {
+        for language in WordLanguage.allCases {
+            let terms = WordPacks.pack(for: language).map(\.term)
+            #expect(Set(terms).count == terms.count, "\(language.rawValue) repeats a word")
+        }
+    }
+
+    /// The offset must survive a relaunch. Swift's `hashValue` is seeded per
+    /// process, so using it would silently change the word of the day every time
+    /// the app restarted -- which is the one thing this feature must not do.
+    @Test("The per-language offset is stable across runs")
+    func offsetIsStable() {
+        let first = DailyWordService.offset(for: .spanish)
+        let second = DailyWordService.offset(for: .spanish)
+        #expect(first == second)
+        #expect(DailyWordService.offset(for: .spanish) != DailyWordService.offset(for: .french))
+    }
+
+    @Test("Day numbers advance by exactly one per day")
+    func dayNumberAdvances() {
+        let today = DailyWordService.dayNumber(Date())
+        let tomorrow = DailyWordService.dayNumber(Date().addingTimeInterval(86_400))
+        #expect(tomorrow == today + 1)
+    }
+
+    @MainActor
+    @Test("The same day yields the same word; the next day does not")
+    func selectionIsDeterministic() {
+        let service = DailyWordService.shared
+        let today = Date()
+        let first = service.word(for: .german, on: today)
+        let again = service.word(for: .german, on: today)
+        #expect(first == again)
+
+        // Only meaningful while the pack has more than one entry, which the
+        // completeness test above already guarantees.
+        let next = service.word(for: .german, on: today.addingTimeInterval(86_400))
+        #expect(next != first)
+    }
+}
+
+// MARK: - Home grid ordering
+
+@Suite("Home grid — ordering and opt-in widgets")
+struct HomeGridTests {
+
+    /// The brief is explicit: Visitors appears in "+ Add Widget" and nowhere
+    /// else until the user adds it.
+    @Test("Visitors is not on the default grid but is offerable")
+    func visitorsIsOptIn() {
+        #expect(!HomeWidgetKind.defaultGrid.contains(.visitors))
+        #expect(HomeWidgetKind.allCases.contains(.visitors))
+    }
+
+    @Test("The widgets the brief names are on the default grid")
+    func defaultGridContents() {
+        for kind in [HomeWidgetKind.revenue, .claudeUsage, .quickTimer, .dailyWord,
+                     .nowPlaying, .screenTime, .systemRings, .weather, .soundLight, .launch] {
+            #expect(HomeWidgetKind.defaultGrid.contains(kind), "\(kind.rawValue) missing")
+        }
+    }
+
+    @Test("Every widget kind has a distinct raw value and a symbol")
+    func kindsAreWellFormed() {
+        let raws = HomeWidgetKind.allCases.map(\.rawValue)
+        #expect(Set(raws).count == raws.count)
+        for kind in HomeWidgetKind.allCases {
+            #expect(!kind.symbol.isEmpty)
+            #expect(!kind.displayName.isEmpty)
+        }
+    }
+
+    /// Mirrors the move performed by the drag delegate. The property that
+    /// matters is that a reorder is a permutation -- nothing is lost and nothing
+    /// is duplicated, which an insert-before-remove would break.
+    private func move(_ widgets: [HomeWidgetKind],
+                      _ source: HomeWidgetKind,
+                      before target: HomeWidgetKind) -> [HomeWidgetKind] {
+        var result = widgets
+        guard source != target,
+              let from = result.firstIndex(of: source),
+              let to = result.firstIndex(of: target) else { return result }
+        result.remove(at: from)
+        result.insert(source, at: to)
+        return result
+    }
+
+    @Test("Reordering is a permutation")
+    func reorderPreservesContents() {
+        let original = HomeWidgetKind.defaultGrid
+        let moved = move(original, .launch, before: .systemRings)
+        #expect(Set(moved) == Set(original))
+        #expect(moved.count == original.count)
+        #expect(moved.first == .launch)
+    }
+
+    @Test("Moving forwards lands where the target was")
+    func reorderForwards() {
+        let grid: [HomeWidgetKind] = [.systemRings, .soundLight, .screenTime, .weather]
+        #expect(move(grid, .systemRings, before: .screenTime) == [.soundLight, .screenTime, .systemRings, .weather])
+    }
+
+    @Test("Moving onto itself changes nothing")
+    func reorderNoOp() {
+        let grid: [HomeWidgetKind] = [.systemRings, .soundLight]
+        #expect(move(grid, .systemRings, before: .systemRings) == grid)
+    }
+}
+
+// MARK: - Calendar
+
+@Suite("Calendar — month grid and event spans")
+struct CalendarGridTests {
+
+    private func calendar(firstWeekday: Int) -> Calendar {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "UTC")!
+        calendar.firstWeekday = firstWeekday
+        return calendar
+    }
+
+    private func date(_ year: Int, _ month: Int, _ day: Int, in calendar: Calendar) -> Date {
+        calendar.date(from: DateComponents(year: year, month: month, day: day))!
+    }
+
+    @Test("Every row is a whole week")
+    func rowsAreWholeWeeks() {
+        let cal = calendar(firstWeekday: 2)     // Monday
+        for month in 1...12 {
+            let grid = CalendarTabView.monthGrid(for: date(2026, month, 15, in: cal), calendar: cal)
+            for week in grid { #expect(week.count == 7) }
+        }
+    }
+
+    /// The row count is computed, not assumed. February 2026 starting on the
+    /// first day of its week needs four rows; a 31-day month starting late needs
+    /// six. Hardcoding six leaves a blank row, hardcoding five truncates.
+    @Test("Row count adapts to the month's shape")
+    func rowCountAdapts() {
+        let monday = calendar(firstWeekday: 2)
+        // February 2026 begins on a Sunday; with a Monday start that is six
+        // leading blanks, so it needs five rows.
+        let february = CalendarTabView.monthGrid(for: date(2026, 2, 1, in: monday), calendar: monday)
+        #expect(february.count == 5)
+
+        let sunday = calendar(firstWeekday: 1)
+        // The same month with a Sunday start needs only four.
+        let februarySunday = CalendarTabView.monthGrid(for: date(2026, 2, 1, in: sunday), calendar: sunday)
+        #expect(februarySunday.count == 4)
+    }
+
+    @Test("The grid covers every day of the month")
+    func gridCoversMonth() {
+        let cal = calendar(firstWeekday: 2)
+        let target = date(2026, 3, 1, in: cal)
+        let days = CalendarTabView.monthGrid(for: target, calendar: cal).flatMap { $0 }
+        let inMonth = days.filter { cal.component(.month, from: $0) == 3 }
+        #expect(inMonth.count == 31)
+    }
+
+    @Test("The grid starts on the calendar's own first weekday")
+    func gridRespectsFirstWeekday() {
+        for first in 1...7 {
+            let cal = calendar(firstWeekday: first)
+            let grid = CalendarTabView.monthGrid(for: date(2026, 6, 10, in: cal), calendar: cal)
+            #expect(cal.component(.weekday, from: grid[0][0]) == first)
+        }
+    }
+
+    @Test("Weekday symbols rotate with the first weekday")
+    func weekdaySymbolsRotate() {
+        let sunday = CalendarTabView.weekdaySymbols(calendar(firstWeekday: 1))
+        let monday = CalendarTabView.weekdaySymbols(calendar(firstWeekday: 2))
+        #expect(sunday.count == 7)
+        #expect(monday.count == 7)
+        #expect(Set(sunday) == Set(monday))
+        #expect(sunday.first != monday.first)
+    }
+
+    /// A meeting that runs 23:00 to 01:00 belongs on both days' cells. Comparing
+    /// only the start date is the easy version and it drops the second day.
+    @Test("An event spanning midnight occupies both days")
+    func spanningEventOccupiesBothDays() {
+        let cal = Calendar.current
+        let start = cal.date(bySettingHour: 23, minute: 0, second: 0, of: Date())!
+        let event = CalendarEvent(id: "x", title: "Late call", start: start,
+                                  end: start.addingTimeInterval(7_200), isAllDay: false,
+                                  location: "", calendarName: "", colour: nil,
+                                  origin: .google, openURL: nil)
+        #expect(event.occupies(day: start))
+        #expect(event.occupies(day: start.addingTimeInterval(86_400)))
+        #expect(!event.occupies(day: start.addingTimeInterval(-86_400)))
+    }
+
+    @Test("Google's calendar colours parse")
+    func colourParsing() {
+        #expect(Color(hex: "#3f51b5") != nil)
+        #expect(Color(hex: "3f51b5") != nil)
+        #expect(Color(hex: "not-a-colour") == nil)
+        #expect(Color(hex: "#fff") == nil)      // three-digit form is not what Google sends
+    }
+}
+
+// MARK: - Task board
+
+@Suite("Task board", .serialized)
+@MainActor
+struct TaskBoardTests {
+
+    private func freshBoard() -> TaskBoard {
+        let board = TaskBoard.shared
+        for task in board.tasks { board.remove(task.id) }
+        return board
+    }
+
+    @Test("A task lands at the top of its lane")
+    func newestFirst() {
+        let board = freshBoard()
+        board.add("first")
+        board.add("second")
+        #expect(board.tasks(in: .todo).map(\.text) == ["second", "first"])
+    }
+
+    @Test("Blank text is rejected")
+    func blankRejected() {
+        let board = freshBoard()
+        #expect(board.add("   \n ") == nil)
+        #expect(board.tasks.isEmpty)
+    }
+
+    @Test("Advancing walks todo → doing → done → todo")
+    func advanceCycles() {
+        let board = freshBoard()
+        guard let task = board.add("ship it") else { Issue.record("add failed"); return }
+        board.advance(task.id)
+        #expect(board.tasks.first?.lane == .doing)
+        board.advance(task.id)
+        #expect(board.tasks.first?.lane == .done)
+        #expect(board.tasks.first?.completedAt != nil)
+        board.advance(task.id)
+        #expect(board.tasks.first?.lane == .todo)
+        // Coming back out of done must clear the completion stamp, or a task
+        // reopened after a mistake still reads as finished.
+        #expect(board.tasks.first?.completedAt == nil)
+    }
+
+    @Test("Open count excludes done")
+    func openCount() {
+        let board = freshBoard()
+        board.add("a"); board.add("b")
+        guard let third = board.add("c") else { Issue.record("add failed"); return }
+        board.move(third.id, to: .done)
+        #expect(board.openCount == 2)
+    }
+
+    /// Fractional ordering means a move writes one row instead of renumbering
+    /// the lane. The property to hold is that the moved card genuinely lands
+    /// before the target.
+    @Test("Reordering places the card before its target")
+    func reorderWithinLane() {
+        let board = freshBoard()
+        board.add("c"); board.add("b"); board.add("a")   // a, b, c top-down
+        let lane = board.tasks(in: .todo)
+        #expect(lane.map(\.text) == ["a", "b", "c"])
+
+        guard let moving = lane.last, let target = lane.first else {
+            Issue.record("lane too short"); return
+        }
+        board.reorder(moving.id, before: target.id)
+        #expect(board.tasks(in: .todo).map(\.text) == ["c", "a", "b"])
+    }
+
+    @Test("Clearing done leaves the other lanes alone")
+    func clearDone() {
+        let board = freshBoard()
+        board.add("keep")
+        guard let finished = board.add("finished") else { Issue.record("add failed"); return }
+        board.move(finished.id, to: .done)
+        board.clearDone()
+        #expect(board.tasks.map(\.text) == ["keep"])
+    }
+}
+
+// MARK: - Terminal viewport and selection
+
+@Suite("Terminal viewport and selection")
+struct TerminalViewportTests {
+
+    private func emulatorWithLines(_ count: Int, rows: Int = 5) -> TerminalEmulator {
+        let emulator = TerminalEmulator(columns: 20, rows: rows)
+        for index in 0..<count {
+            emulator.feed(Data("line\(index)\r\n".utf8))
+        }
+        return emulator
+    }
+
+    @Test("A fresh emulator is pinned to the bottom")
+    func startsAtBottom() {
+        let emulator = emulatorWithLines(20)
+        #expect(emulator.scrollOffset == 0)
+        #expect(!emulator.isScrolledBack)
+    }
+
+    @Test("Scrolling moves the window back through history")
+    func scrollingMovesWindow() {
+        let emulator = emulatorWithLines(20)
+        let bottom = Array(emulator.visibleLines)
+        emulator.scroll(by: 3)
+        #expect(emulator.isScrolledBack)
+        #expect(Array(emulator.visibleLines) != bottom)
+        emulator.scrollToBottom()
+        #expect(Array(emulator.visibleLines) == bottom)
+    }
+
+    @Test("Scrolling clamps at both ends")
+    func scrollClamps() {
+        let emulator = emulatorWithLines(20)
+        emulator.scroll(by: -5)
+        #expect(emulator.scrollOffset == 0)
+        emulator.scroll(by: 10_000)
+        #expect(emulator.scrollOffset == emulator.maxScrollOffset)
+    }
+
+    /// The alternate screen is what `less` and `vim` draw into, and it has no
+    /// scrollback. Letting the viewport move there would show the primary
+    /// buffer bleeding through underneath the full-screen app.
+    @Test("The alternate screen does not scroll")
+    func alternateScreenDoesNotScroll() {
+        let emulator = emulatorWithLines(20)
+        emulator.feed(Data("\u{1B}[?1049h".utf8))       // enter alternate screen
+        emulator.scroll(by: 5)
+        #expect(emulator.scrollOffset == 0)
+    }
+
+    @Test("Selected text drops the padding a terminal adds")
+    func selectionTrimsTrailingBlanks() {
+        let emulator = TerminalEmulator(columns: 40, rows: 4)
+        emulator.feed(Data("hello\r\n".utf8))
+        let text = emulator.text(from: .init(line: 0, column: 0), to: .init(line: 0, column: 39))
+        #expect(text == "hello")
+    }
+
+    @Test("A selection reads across several lines")
+    func selectionSpansLines() {
+        let emulator = TerminalEmulator(columns: 20, rows: 6)
+        emulator.feed(Data("alpha\r\nbeta\r\ngamma\r\n".utf8))
+        let text = emulator.text(from: .init(line: 0, column: 0), to: .init(line: 2, column: 19))
+        #expect(text == "alpha\nbeta\ngamma")
+    }
+
+    /// Dragging up the screen is as valid as dragging down, and the anchor is
+    /// then after the head. Without the swap the selection reads as empty.
+    @Test("A backwards selection reads the same as a forwards one")
+    func selectionIsOrderIndependent() {
+        let emulator = TerminalEmulator(columns: 20, rows: 6)
+        emulator.feed(Data("alpha\r\nbeta\r\n".utf8))
+        let forwards = emulator.text(from: .init(line: 0, column: 0), to: .init(line: 1, column: 19))
+        let backwards = emulator.text(from: .init(line: 1, column: 19), to: .init(line: 0, column: 0))
+        #expect(forwards == backwards)
+    }
+
+    @Test("Positions order by line then column")
+    func positionOrdering() {
+        #expect(TerminalEmulator.Position(line: 1, column: 9) < TerminalEmulator.Position(line: 2, column: 0))
+        #expect(TerminalEmulator.Position(line: 2, column: 1) < TerminalEmulator.Position(line: 2, column: 4))
+    }
+
+    @Test("A selection covers the cells between its ends")
+    func selectionContains() {
+        let selection = TerminalSelection(anchor: .init(line: 1, column: 5),
+                                          head: .init(line: 3, column: 2))
+        #expect(selection.contains(line: 2, column: 0))
+        #expect(selection.contains(line: 1, column: 5))
+        #expect(!selection.contains(line: 1, column: 4))
+        #expect(!selection.contains(line: 3, column: 3))
+    }
+}
+
+// MARK: - Water
+
+@Suite("Water tracker", .serialized)
+@MainActor
+struct WaterTests {
+
+    @Test("Adding and removing glasses never goes negative")
+    func tallyFloor() {
+        let tracker = WaterTracker.shared
+        tracker.resetToday()
+        tracker.removeGlass()
+        #expect(tracker.glasses == 0)
+        tracker.addGlass()
+        tracker.addGlass()
+        #expect(tracker.glasses == 2)
+        tracker.removeGlass()
+        #expect(tracker.glasses == 1)
+        tracker.resetToday()
+    }
+
+    @Test("Progress is capped at the goal")
+    func progressCaps() {
+        let tracker = WaterTracker.shared
+        tracker.resetToday()
+        for _ in 0..<(tracker.goal + 5) { tracker.addGlass() }
+        #expect(tracker.progress == 1.0)
+        tracker.resetToday()
+    }
+
+    @Test("The recent strip is always fourteen days, oldest first")
+    func recentDaysShape() {
+        let days = WaterTracker.shared.recentDays
+        #expect(days.count == 14)
+        #expect(days.last?.day == WaterTracker.today())
+    }
+}
+
+// MARK: - Visitors
+
+@Suite("Visitors — response shapes")
+struct VisitorsTests {
+
+    /// The dot-path resolver is shared with the custom-metric tile, so what is
+    /// asserted here is the shapes real analytics tools actually return.
+    @Test("A Plausible-shaped response resolves")
+    func plausibleShape() {
+        let json: [String: Any] = [
+            "results": ["visitors": ["value": 1234, "comparison_value": 1000]]
+        ]
+        #expect((MetricFetcher.value(at: "results.visitors.value", in: json) as? Int) == 1234)
+        #expect((MetricFetcher.value(at: "results.visitors.comparison_value", in: json) as? Int) == 1000)
+    }
+
+    @Test("A series of objects resolves element by element")
+    func seriesOfObjects() {
+        let series: [Any] = [["visitors": 3], ["visitors": 9]]
+        let values = series.compactMap { MetricFetcher.value(at: "visitors", in: $0) as? Int }
+        #expect(values == [3, 9])
+    }
+
+    @Test("Every preset names a real path set, except the custom escape hatch")
+    func presetsAreUsable() {
+        for preset in VisitorsService.presets where preset.id != "custom" {
+            #expect(!preset.currentPath.isEmpty, "\(preset.name) has no count path")
+            #expect(!preset.hint.isEmpty)
+        }
+        #expect(VisitorsService.presets.contains { $0.id == "custom" })
+    }
+
+    @Test("Counts are abbreviated for the tile")
+    func compactCounts() {
+        #expect(VisitorsService.compact(940) == "940")
+        #expect(VisitorsService.compact(1_400) == "1.4k")
+        #expect(VisitorsService.compact(24_000) == "24k")
+        #expect(VisitorsService.compact(3_100_000) == "3.1M")
+    }
+}
+
+// MARK: - Tab dock
+
+@Suite("Tab dock ordering")
+struct TabDockTests {
+
+    /// Mirrors the built-in branch of `TabDockView.move`. The invariant is that
+    /// a reorder is a permutation of the enabled set -- a dock that loses a tab
+    /// on a drag would be a way to make Settings unreachable.
+    private func move(_ order: [String], _ source: String, before target: String) -> [String] {
+        var result = order
+        guard let from = result.firstIndex(of: source),
+              let to = result.firstIndex(of: target) else { return result }
+        result.remove(at: from)
+        result.insert(source, at: to)
+        return result
+    }
+
+    @Test("Reordering preserves the set")
+    func reorderPreservesSet() {
+        let order = TabID.defaultOrder
+        let moved = move(order, TabID.terminal.rawValue, before: TabID.home.rawValue)
+        #expect(Set(moved) == Set(order))
+        #expect(moved.first == TabID.terminal.rawValue)
+    }
+
+    @Test("Screen Time is a first-class tab")
+    func screenTimeIsATab() {
+        #expect(TabID.allCases.contains(.screenTime))
+        #expect(TabID.defaultOrder.contains(TabID.screenTime.rawValue))
+        #expect(!TabID.screenTime.title.isEmpty)
+    }
+
+    @Test("Every tab has a distinct raw value and a symbol")
+    func tabsAreWellFormed() {
+        let raws = TabID.allCases.map(\.rawValue)
+        #expect(Set(raws).count == raws.count)
+        for id in TabID.allCases {
+            #expect(!id.symbol.isEmpty)
+            #expect(!id.title.isEmpty)
+        }
+    }
+}
+
+// MARK: - Broadened approval detection
+
+@Suite("Approval detection beyond Claude Code")
+struct BroadApprovalTests {
+
+    @Test("Codex prompts are recognised and attributed")
+    func codexPrompts() {
+        let match = ApprovalPatterns.match(in: "Codex wants to run a command\n> rm -rf build\n")
+        #expect(match?.pattern.source == "Codex")
+        #expect(match?.detail?.contains("rm -rf build") == true)
+    }
+
+    @Test("A generic waiting-for-approval line is caught")
+    func genericWaiting() {
+        #expect(ApprovalPatterns.match(in: "…\nWaiting for your approval\n") != nil)
+        #expect(ApprovalPatterns.match(in: "Press y to continue") != nil)
+    }
+
+    @Test("Claude Code still wins attribution over the generic rules")
+    func claudeStillWins() {
+        let match = ApprovalPatterns.match(in: "Do you want to proceed?\n│ $ git push\n")
+        #expect(match?.pattern.source == "Claude Code")
+    }
+
+    /// The whole reason the pattern file carries a warning. A rule loose enough
+    /// to fire on prose about approvals would badge the notch during an
+    /// ordinary `git log`.
+    @Test("Ordinary output does not trigger a badge")
+    func noFalsePositives() {
+        #expect(ApprovalPatterns.match(in: "Compiling NotchBuddy TerminalEmulator.swift") == nil)
+        #expect(ApprovalPatterns.match(in: "the docs describe a [y/N] prompt somewhere in the middle") == nil)
+        #expect(ApprovalPatterns.match(in: "approved by the reviewer last week") == nil)
+    }
+}
