@@ -32,3 +32,4 @@ file's header instead.
 | [0019](0019-claude-usage-from-local-transcripts.md) | Claude usage from local transcripts, not an API | Accepted |
 | [0020](0020-google-oauth-loopback-over-eventkit-only.md) | Direct Google OAuth, not EventKit alone | Accepted |
 | [0021](0021-embedded-word-packs.md) | Embedded word packs, derived word of the day | Accepted |
+| [0022](0022-detail-tabs-over-permanent-ones.md) | Detail tabs over permanent ones | Accepted |

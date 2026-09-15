@@ -381,12 +381,20 @@ that is the behaviour that makes notch apps annoying.
 badge · optional compact system stats
 
 **Tier 2 (tabs):** Home (customisable widget grid) · Time (multiple named
-timers, alarms with weekday repeats, Pomodoro, stopwatch, water) · Screen Time
-(7-day chart with daily average, per-app breakdown) · Snippets (clipboard
-history + saved snippets + pinned, one store, with a task board beside it) ·
-Notes · Calendar (agenda + month grid, Apple and Google) · Files (format
-converter with size presets and a batch queue) · API Tester · Docker · Terminal
-· AI Chat · Message (flash-across-the-notch) · Settings
+timers, alarms with weekday repeats, Pomodoro, stopwatch, water) · Snippets
+(clipboard history + saved snippets + pinned, one store, with a task board
+beside it) · Notes · Calendar (agenda + month grid, Apple and Google) · Files
+(format converter with size presets and a batch queue) · API Tester · Docker ·
+Terminal · AI Chat · Message (flash-across-the-notch) · Settings
+
+Each tab opens at the size it needs rather than a single fixed one — the
+terminal is the widest, because columns change what you can actually run.
+
+**Detail tabs** open from a tile and close like an editor's: Screen Time
+(7-day chart with daily average, per-app breakdown) · Revenue · Claude usage ·
+Word of the Day · Storage (free space, per-volume breakdown, empty the Bin).
+They appear in the dock with a close button and are not persisted across
+launches.
 
 **Home widgets:** System rings (CPU/RAM/Disk/Battery) · Sound & Light · Screen
 Time · Revenue (Stripe-backed, tap for detail) · Claude usage (tokens, streak,
@@ -396,7 +404,8 @@ the Day · Launch shortcuts. Opt-in from **+ Add Widget**: Visitors (live count,
 
 Tiles are **drag-to-reorder** in Edit mode and the order persists. So is the tab
 dock, which also has a **+** for adding a config-driven custom tab or bringing a
-hidden built-in back.
+hidden built-in back. Tapping the Disk ring opens the Storage detail; tapping
+Revenue, Claude usage, Screen Time or Word of the Day opens theirs.
 
 **Not tabs:** selection-aware Explain/Rewrite/Translate (global, Accessibility)
 · Teleprompter (separate always-on-top window, hidden from screen recording by
@@ -404,8 +413,9 @@ default)
 
 **Cross-cutting:** three themes (Minimal / Playful / Neon) · launch at login ·
 global hotkey · per-window hide-from-screen-recording · battery-saver switch
-with live diagnostics · config-driven custom tabs · one right-to-left sweep
-animation shared by every transient pop-in
+with live diagnostics · config-driven custom tabs · two shared
+notification styles (a right-to-left sweep along the notch, or a phone-style
+drop-and-fade) applied to every transient pop-in
 
 **Deliberately excluded:** currency converter, world clock.
 
@@ -463,10 +473,10 @@ Sources/NotchBuddy/
     LLM/        shared streaming client
     Selection/  AX-driven selection assist
     Widgets/    screen time, weather, sound & light, Stripe, visitors,
-                Claude usage, word packs, metrics
+                Claude usage, word packs, storage, metrics
     Docker/ Files/ Message/ Teleprompter/
   Support/      logging, JSON store, Keychain
-Tests/          112 tests (swift-testing)
+Tests/          129 tests (swift-testing)
 Scripts/        build-app.sh · test.sh · bench-idle.sh · install-hook.sh
 ```
 
@@ -481,8 +491,14 @@ The audit pass restored three widgets that had been over-generalised into one
 tile ([ADR 0018](docs/decisions/0018-named-widgets-over-generic-metric.md)),
 made both the home grid and the tab dock genuinely reorderable, and added the
 month view, Google Calendar, the task board, the water tracker and the word
-learner. Every transient pop-in now shares one sweep animation rather than
-each feature picking its own.
+learner. Every transient pop-in shares one animation rather than each feature
+picking its own.
+
+A follow-up pass added the pointing-hand cursor the drawn controls were
+missing, storage and the Bin, a second notification style, per-tab panel
+sizing, and the detail-tab model
+([ADR 0022](docs/decisions/0022-detail-tabs-over-permanent-ones.md)) that keeps
+occasional views off the dock.
 
 Known limitations are documented rather than hidden:
 [docs/learning/06-known-limitations.md](docs/learning/06-known-limitations.md).
