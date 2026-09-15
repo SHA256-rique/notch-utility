@@ -114,7 +114,15 @@ final class NotchArbiter: ObservableObject {
     }
 
     /// Convenience for the many "flash a confirmation" call sites.
-    func flash(_ text: String, symbol: String, module: ModuleTint = .system, detail: String? = nil, duration: TimeInterval = 2.0) {
+    ///
+    /// Call sites pass a duration only when the message genuinely needs longer
+    /// than usual ("Timer finished" holds for five seconds). Everything else
+    /// takes the default, which follows the user's toast-hold preference --
+    /// so how long a confirmation lingers is one setting, not thirty literals
+    /// scattered through the codebase.
+    func flash(_ text: String, symbol: String, module: ModuleTint = .system,
+               detail: String? = nil, duration: TimeInterval? = nil) {
+        let ttl = duration ?? max(0.8, Settings.shared.data.transientToastSeconds)
         claim(PillClaim(id: "transient",
                         priority: .transient,
                         module: module,
@@ -122,7 +130,7 @@ final class NotchArbiter: ObservableObject {
                         text: text,
                         detail: detail,
                         rank: 0,
-                        expiresAt: Date().addingTimeInterval(duration),
+                        expiresAt: Date().addingTimeInterval(ttl),
                         progress: nil))
     }
 

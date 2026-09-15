@@ -6,101 +6,162 @@ import SwiftUI
 /// to say**. An idle timer widget shows no "00:00", an idle Now Playing shows no
 /// empty scrubber. When no claim exists the pill collapses to a bare shape that
 /// merges with the physical notch, and the app is visually absent.
+///
+/// ## Two layers, never a swap
+/// A transient never replaces a persistent claim. The arbitration rule says it
+/// *overlays* for its lifetime, so the persistent view stays mounted underneath
+/// and the toast is drawn over it. When the TTL expires the running timer is
+/// simply still there -- no re-entry animation to get wrong, no frame where the
+/// pill is empty.
+///
+/// How the transient presents itself is the user's choice between two shared
+/// animations (`TransientStyle`), applied to every transient in the app.
 struct CollapsedPillView: View {
     @EnvironmentObject private var arbiter: NotchArbiter
     @EnvironmentObject private var themes: ThemeManager
     @EnvironmentObject private var controller: NotchPanelController
+    @EnvironmentObject private var settings: Settings
 
     var body: some View {
         let theme = themes.theme
         let persistent = arbiter.allPersistent.first
         let transient = arbiter.transient
         let ambient = arbiter.ambient
-        let hasContent = persistent != nil || transient != nil
+        let style = settings.data.transientStyle
+        let sweeping = style == .sweep ? transient : nil
+        let toasting = style == .toast ? transient : nil
 
-        GeometryReader { geo in
-            ZStack(alignment: .leading) {
-                // --- Base layer: the persistent claim and the ambient items.
-                //
-                // The persistent claim is NOT replaced when a transient arrives.
-                // The arbitration rule says a transient only *overlays* for its
-                // lifetime, and the cheapest way to be literally faithful to
-                // that is to keep the persistent view mounted underneath and let
-                // the transient sweep over it. When the toast expires the timer
-                // is simply still there -- no re-entry animation, no flicker.
-                HStack(spacing: 0) {
-                    if let persistent {
-                        claimView(persistent, theme: theme, emphasised: true)
-                            .transition(.asymmetric(
-                                insertion: .scale(scale: 0.8).combined(with: .opacity),
-                                removal: .opacity))
-                            .id(persistent.id)
-                    }
-
-                    // The notch cutout itself. Nothing at rest may be drawn
-                    // here -- it is physical hardware. The spacer is what makes
-                    // content appear to flow around the camera housing.
-                    Spacer(minLength: notchWidth)
-
-                    // Right shoulder: ambient items, only while something else
-                    // is already holding the pill open. On a resting pill they
-                    // stay hidden so the app is invisible when idle.
-                    if hasContent {
-                        HStack(spacing: 8) {
-                            ForEach(ambient.prefix(2)) { claim in
-                                claimView(claim, theme: theme, emphasised: false)
-                            }
-                        }
-                        .transition(.opacity)
-                    }
-                }
-                // Dim the base while a toast is crossing it, so the two layers
-                // never compete for the eye at the same brightness.
-                .opacity(transient == nil ? 1 : 0.25)
-                .animation(Motion.pillContent, value: transient == nil)
-
-                // --- Overlay layer: the transient, sweeping right to left.
-                if let transient {
+        VStack(spacing: 0) {
+            GeometryReader { geo in
+                ZStack(alignment: .leading) {
+                    // --- Base layer: the persistent claim and the ambient items.
                     HStack(spacing: 0) {
-                        claimView(transient, theme: theme, emphasised: true)
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 3)
-                            .background(
-                                Capsule()
-                                    .fill(theme.tint(transient.module).opacity(0.18))
-                                    .overlay(SweepHighlight(tint: theme.tint(transient.module)))
-                                    .clipShape(Capsule())
-                            )
-                        Spacer(minLength: 0)
+                        if let persistent {
+                            claimView(persistent, theme: theme, emphasised: true)
+                                .transition(.asymmetric(
+                                    insertion: .scale(scale: 0.8).combined(with: .opacity),
+                                    removal: .opacity))
+                                .id(persistent.id)
+                        }
+
+                        // The notch cutout itself. Nothing at rest may be drawn
+                        // here -- it is physical hardware. The spacer is what
+                        // makes content appear to flow around the camera housing.
+                        Spacer(minLength: notchWidth)
+
+                        // Right shoulder: ambient items, only while something
+                        // else is already holding the pill open. On a resting
+                        // pill they stay hidden so the app is invisible when idle.
+                        if persistent != nil || transient != nil {
+                            HStack(spacing: 8) {
+                                ForEach(ambient.prefix(2)) { claim in
+                                    claimView(claim, theme: theme, emphasised: false)
+                                }
+                            }
+                            .transition(.opacity)
+                        }
                     }
-                    .transition(.notchSweep(distance: geo.size.width))
-                    // Keyed on the content, not just the slot id, so two toasts
-                    // in quick succession genuinely re-run the sweep rather than
-                    // cross-fading their text in place.
-                    .id(transient.id + transient.text + (transient.detail ?? ""))
+                    // Dim the base only while a sweep is crossing it. A toast
+                    // sits *below* the pill and does not overlap anything, so
+                    // dimming for one would be dimming for no reason.
+                    .opacity(sweeping == nil ? 1 : 0.25)
+                    .animation(Motion.pillContent, value: sweeping == nil)
+
+                    // --- Overlay layer: a sweeping transient, right to left.
+                    if let sweeping {
+                        HStack(spacing: 0) {
+                            claimView(sweeping, theme: theme, emphasised: true)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 3)
+                                .background(
+                                    Capsule()
+                                        .fill(theme.tint(sweeping.module).opacity(0.18))
+                                        .overlay(SweepHighlight(tint: theme.tint(sweeping.module)))
+                                        .clipShape(Capsule())
+                                )
+                            Spacer(minLength: 0)
+                        }
+                        .transition(.notchSweep(distance: geo.size.width))
+                        // Keyed on the content, not just the slot id, so two
+                        // toasts in quick succession genuinely re-run the
+                        // animation rather than cross-fading their text in place.
+                        .id(key(sweeping))
+                    }
                 }
+                .frame(width: geo.size.width, height: geo.size.height)
             }
-            .frame(width: geo.size.width, height: geo.size.height)
+            .padding(.horizontal, 10)
+            .frame(height: pillHeight)
+            .background(pillShape(theme: theme))
+            .clipShape(pillClip)
+
+            // --- The toast, hanging below the notch rather than inside it.
+            if let toasting {
+                toastView(toasting, theme: theme)
+                    .transition(.toastDrop())
+                    .id(key(toasting))
+                    .padding(.top, 4)
+            }
         }
-        .padding(.horizontal, 10)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(pillShape(theme: theme))
-        .clipShape(
-            UnevenRoundedRectangle(
-                topLeadingRadius: 0, bottomLeadingRadius: 14,
-                bottomTrailingRadius: 14, topTrailingRadius: 0, style: .continuous)
-        )
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .animation(Motion.pillContent, value: persistent)
         .animation(Motion.pillContent, value: ambient.count)
-        // Two different animations for the two directions of the sweep: it
-        // arrives on a spring and leaves on an ease-in, because the exit is
-        // continuing its travel rather than settling.
-        .animation(transient == nil ? Motion.sweepOut : Motion.sweepIn, value: transient)
+        // Each style gets its own pair of curves, and the direction of travel
+        // decides which one applies.
+        .animation(sweeping == nil ? Motion.sweepOut : Motion.sweepIn, value: sweeping)
+        .animation(toasting == nil ? Motion.toastOut : Motion.toastIn, value: toasting)
         .contentShape(Rectangle())
     }
 
     private var notchWidth: CGFloat {
         ScreenGeometry.current().hasPhysicalNotch ? ScreenGeometry.current().notchRect.width : 120
+    }
+
+    /// The pill occupies only the notch's own height; anything below it is the
+    /// toast's. Without this the pill would stretch to fill the taller window
+    /// the controller opens for a toast, and the "notch" would visibly grow.
+    private var pillHeight: CGFloat {
+        max(ScreenGeometry.current().notchRect.height, 32)
+            + (arbiter.hasUrgentContent ? 6 : 0)
+    }
+
+    private func key(_ claim: PillClaim) -> String {
+        claim.id + claim.text + (claim.detail ?? "")
+    }
+
+    // MARK: - Toast
+
+    /// The phone-shaped notification: a self-contained capsule under the notch,
+    /// with its own background rather than the pill's, because it is a separate
+    /// object that appeared -- not a region of the notch lighting up.
+    private func toastView(_ claim: PillClaim, theme: Theme) -> some View {
+        let tint = theme.tint(claim.module)
+        return HStack(spacing: 6) {
+            Image(systemName: claim.symbol)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(tint)
+                .themeGlow(tint, radius: theme.glowRadius(4))
+            Text(claim.text)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(theme.primaryText)
+                .lineLimit(1)
+            if let detail = claim.detail {
+                Text(detail)
+                    .font(.system(size: 10))
+                    .foregroundStyle(theme.secondaryText)
+                    .lineLimit(1)
+            }
+        }
+        .padding(.horizontal, 11)
+        .padding(.vertical, 6)
+        .background(
+            Capsule()
+                .fill(theme.panelBackground)
+                .overlay(Capsule().stroke(tint.opacity(0.35), lineWidth: 1))
+                .themeGlow(tint, radius: theme.glowRadius(8))
+                .shadow(color: .black.opacity(0.4), radius: 10, y: 3)
+        )
+        .fixedSize()
     }
 
     // MARK: - Claim rendering
@@ -145,21 +206,20 @@ struct CollapsedPillView: View {
 
     // MARK: - Shape
 
+    private var pillClip: UnevenRoundedRectangle {
+        UnevenRoundedRectangle(
+            topLeadingRadius: 0, bottomLeadingRadius: 14,
+            bottomTrailingRadius: 14, topTrailingRadius: 0, style: .continuous)
+    }
+
     /// The bottom corners are rounded and the top ones are square, so the pill
     /// reads as hanging *from* the notch rather than floating under it. On a
     /// notchless display it still works as a menu-bar-adjacent tab.
     private func pillShape(theme: Theme) -> some View {
-        UnevenRoundedRectangle(
-            topLeadingRadius: 0, bottomLeadingRadius: 14,
-            bottomTrailingRadius: 14, topTrailingRadius: 0, style: .continuous)
-        .fill(Color.black)
-        .overlay(
-            UnevenRoundedRectangle(
-                topLeadingRadius: 0, bottomLeadingRadius: 14,
-                bottomTrailingRadius: 14, topTrailingRadius: 0, style: .continuous)
-            .stroke(theme.panelStroke, lineWidth: theme.kind == .neon ? 1 : 0.5)
-        )
-        // Only glow when the pill has content; a resting pill must be invisible.
-        .themeGlow(theme.accent, radius: arbiter.hasUrgentContent ? theme.glowRadius(8) : 0)
+        pillClip
+            .fill(Color.black)
+            .overlay(pillClip.stroke(theme.panelStroke, lineWidth: theme.kind == .neon ? 1 : 0.5))
+            // Only glow when the pill has content; a resting pill must be invisible.
+            .themeGlow(theme.accent, radius: arbiter.hasUrgentContent ? theme.glowRadius(8) : 0)
     }
 }

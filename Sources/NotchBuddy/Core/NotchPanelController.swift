@@ -31,10 +31,20 @@ final class NotchPanelController: NSObject, ObservableObject {
 
     /// Resting pill: just wider than the physical notch so its rounded corners
     /// read as part of the hardware rather than a separate floating chip.
+    ///
+    /// A toast-style transient hangs *below* the pill, so the window has to grow
+    /// to make room for it -- the pill itself keeps its own height, enforced in
+    /// `CollapsedPillView`, or the notch would visibly swell every time
+    /// something was copied. The extra width is generous because a toast is
+    /// sized to its text and a clipped toast is worse than a wide window that
+    /// is mostly transparent and click-through anyway.
     private var collapsedSize: CGSize {
         let notchWidth = layout.hasPhysicalNotch ? layout.notchRect.width : 200
-        return CGSize(width: notchWidth + (arbiter.hasUrgentContent ? 260 : 24),
-                      height: max(layout.notchRect.height, 32) + (arbiter.hasUrgentContent ? 6 : 0))
+        let pillHeight = max(layout.notchRect.height, 32) + (arbiter.hasUrgentContent ? 6 : 0)
+        let toasting = arbiter.transient != nil && Settings.shared.data.transientStyle == .toast
+        return CGSize(width: notchWidth + (arbiter.hasUrgentContent ? 260 : 24)
+                             + (toasting ? 120 : 0),
+                      height: pillHeight + (toasting ? 44 : 0))
     }
     private let expandedSize = CGSize(width: 680, height: 420)
 

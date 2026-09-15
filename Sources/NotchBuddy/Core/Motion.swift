@@ -280,3 +280,63 @@ struct SweepHighlight: View {
         }
     }
 }
+
+// MARK: - The transient toast
+
+/// The other way a transient can arrive: a capsule that drops just below the
+/// notch, holds, and fades upward.
+///
+/// ## Why offer two at all
+/// The sweep uses the hardware -- the message travels *along* the notch, and it
+/// reads as the machine telling you something. That is the better idea and it
+/// stays the default. But it is also unfamiliar, it needs the full width of the
+/// pill to play out, and on a notchless display it has much less to work with.
+///
+/// The toast is the shape every phone has trained people to read without
+/// looking directly at it: appear near where you are already looking, hold
+/// briefly, leave. For a "Copied" that fires twenty times an hour, the
+/// unremarkable one is arguably the right one.
+///
+/// Both are still **one** animation applied to every transient. What the setting
+/// picks is which of the two, not which one a given feature gets to use -- the
+/// thing that made the original per-feature animations wrong was the
+/// inconsistency, not the specific curve.
+struct ToastDrop: ViewModifier, Animatable {
+    /// -1 is fully above and hidden, 0 is resting, +1 is drifted up and gone.
+    var phase: Double
+    var travel: CGFloat
+
+    var animatableData: Double {
+        get { phase }
+        set { phase = newValue }
+    }
+
+    func body(content: Content) -> some View {
+        content
+            // Entry drops *down* out of the notch and exit drifts *up* back
+            // into it, so the notch is visibly where the message came from.
+            .offset(y: travel * CGFloat(phase))
+            .opacity(1 - min(1, abs(phase)))
+            // A small overshoot in scale on the way in is what makes a toast
+            // read as arriving rather than as being revealed.
+            .scaleEffect(1 - min(0.10, abs(phase) * 0.14), anchor: .top)
+    }
+}
+
+extension AnyTransition {
+    static func toastDrop(travel: CGFloat = 14) -> AnyTransition {
+        .asymmetric(
+            insertion: .modifier(active: ToastDrop(phase: -1, travel: travel),
+                                 identity: ToastDrop(phase: 0, travel: travel)),
+            removal: .modifier(active: ToastDrop(phase: 1, travel: travel),
+                               identity: ToastDrop(phase: 0, travel: travel)))
+    }
+}
+
+extension Motion {
+    /// The toast arriving. A touch more overshoot than `pillContent`: it is a
+    /// small object moving a short distance and it should feel light.
+    static let toastIn = Animation.spring(response: 0.34, dampingFraction: 0.72)
+    /// Leaving. Quick and eased -- nobody watches a toast leave.
+    static let toastOut = Animation.easeIn(duration: 0.22)
+}

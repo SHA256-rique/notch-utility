@@ -778,3 +778,75 @@ struct StorageTests {
         #expect(!StorageService.BinContents(itemCount: 3, bytes: 900, isMeasuring: false).isEmpty)
     }
 }
+
+
+// MARK: - Transient presentation
+
+@Suite("Transient presentation", .serialized)
+struct TransientStyleTests {
+
+    @Test("Both styles are complete and distinct")
+    func stylesAreWellFormed() {
+        let raws = TransientStyle.allCases.map(\.rawValue)
+        #expect(Set(raws).count == raws.count)
+        for style in TransientStyle.allCases {
+            #expect(!style.displayName.isEmpty)
+            #expect(!style.detail.isEmpty)
+            #expect(!style.symbol.isEmpty)
+        }
+    }
+
+    /// The sweep is the better idea and stays the default: it uses the hardware,
+    /// and the message reads as the machine telling you something.
+    @Test("Sweep is the default")
+    func sweepIsDefault() {
+        #expect(SettingsData().transientStyle == .sweep)
+    }
+
+    /// The hold is one setting rather than thirty literals. A call site passes a
+    /// duration only when the message genuinely needs longer than usual.
+    @Test("Flash without a duration follows the user's hold preference")
+    func flashUsesPreference() {
+        let arbiter = NotchArbiter.shared
+        arbiter.clearTransient()
+        Settings.shared.data.transientToastSeconds = 3.0
+
+        arbiter.flash("Copied", symbol: "doc.on.doc")
+        guard let expiry = arbiter.transient?.expiresAt else {
+            Issue.record("no transient"); return
+        }
+        #expect(abs(expiry.timeIntervalSinceNow - 3.0) < 0.3)
+        arbiter.clearTransient()
+    }
+
+    @Test("An explicit duration still wins")
+    func explicitDurationWins() {
+        let arbiter = NotchArbiter.shared
+        arbiter.clearTransient()
+        Settings.shared.data.transientToastSeconds = 1.0
+
+        arbiter.flash("Timer finished", symbol: "bell.fill", module: .time, duration: 5)
+        guard let expiry = arbiter.transient?.expiresAt else {
+            Issue.record("no transient"); return
+        }
+        #expect(abs(expiry.timeIntervalSinceNow - 5.0) < 0.3)
+        arbiter.clearTransient()
+    }
+
+    /// A hold of zero would leave a toast on screen for exactly one frame. The
+    /// slider cannot reach it, but a hand-edited settings file can.
+    @Test("A nonsensical hold is floored")
+    func holdIsFloored() {
+        let arbiter = NotchArbiter.shared
+        arbiter.clearTransient()
+        Settings.shared.data.transientToastSeconds = 0
+
+        arbiter.flash("Copied", symbol: "doc.on.doc")
+        guard let expiry = arbiter.transient?.expiresAt else {
+            Issue.record("no transient"); return
+        }
+        #expect(expiry.timeIntervalSinceNow >= 0.5)
+        arbiter.clearTransient()
+        Settings.shared.data.transientToastSeconds = SettingsData().transientToastSeconds
+    }
+}

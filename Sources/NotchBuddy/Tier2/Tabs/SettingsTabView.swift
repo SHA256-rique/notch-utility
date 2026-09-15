@@ -82,6 +82,43 @@ struct GeneralSettings: View {
             TeleprompterController.shared.applyCaptureHiding()
         }
 
+        NBSectionHeader(title: "Notifications")
+        Text("How a confirmation shows itself — \"Copied\", \"Converted 3 files\", \"Bin emptied\". Whichever you pick applies to every one of them; the point of having a house style is that it is consistent.")
+            .font(.system(size: 9)).foregroundStyle(theme.secondaryText)
+            .fixedSize(horizontal: false, vertical: true)
+        HStack(spacing: 6) {
+            ForEach(TransientStyle.allCases) { style in
+                Button {
+                    settings.data.transientStyle = style
+                    // Fire one so the choice can be judged rather than imagined.
+                    NotchArbiter.shared.flash("Copied", symbol: "doc.on.doc.fill",
+                                              module: .snippets, detail: "preview")
+                } label: {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Label(style.displayName, systemImage: style.symbol)
+                            .font(.system(size: 11, weight: .medium))
+                        Text(style.detail)
+                            .font(.system(size: 9)).opacity(0.75)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .buttonStyle(NBButtonStyle(tint: theme.accent,
+                                           filled: settings.data.transientStyle == style))
+            }
+        }
+        HStack(spacing: 8) {
+            labelledSlider("Hold for", value: $settings.data.transientToastSeconds,
+                           range: 0.8...5, theme: theme)
+            Button("Preview") {
+                NotchArbiter.shared.flash("Conversion finished", symbol: "checkmark.circle.fill",
+                                          module: .files, detail: "4 files")
+            }
+            .buttonStyle(NBButtonStyle(tint: theme.accent, compact: true))
+        }
+        Text("Collapse the panel to see it — a toast is a message for when you are not already looking at the app.")
+            .font(.system(size: 9)).foregroundStyle(theme.secondaryText)
+
         NBSectionHeader(title: "System")
         toggle("Launch at login", $settings.data.launchAtLogin, theme) {
             let ok = LaunchAtLogin.set(settings.data.launchAtLogin)

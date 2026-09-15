@@ -147,6 +147,45 @@ enum HomeWidgetKind: String, Codable, CaseIterable, Identifiable {
     ]
 }
 
+/// How a transient pop-in -- "Copied", "Conversion finished", "Bin emptied" --
+/// presents itself.
+///
+/// Both are one shared animation applied to every transient, never a per-feature
+/// choice. What varies is which of the two the user prefers, not which one a
+/// given feature happens to use.
+enum TransientStyle: String, Codable, CaseIterable, Identifiable {
+    /// A highlight that travels right to left across the notch and settles on
+    /// the left shoulder. Uses the hardware: the message is *part of* the notch.
+    case sweep
+    /// A capsule that drops just below the notch, holds, and fades upward --
+    /// the toast every phone has trained people to read without looking
+    /// directly at it.
+    case toast
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .sweep: return "Sweep across"
+        case .toast: return "Drop and fade"
+        }
+    }
+
+    var detail: String {
+        switch self {
+        case .sweep: return "Travels right to left along the notch."
+        case .toast: return "Pops in under the notch, like a phone."
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .sweep: return "arrow.left"
+        case .toast: return "bell.badge"
+        }
+    }
+}
+
 /// Stripe-backed revenue. The secret key lives in Keychain under
 /// `stripe.secret`; only the non-secret shape of the connection is stored here.
 struct StripeConfig: Codable, Equatable {
@@ -215,6 +254,10 @@ struct SettingsData: Codable {
     var showTimersInPill: Bool = true
     var showStatsInPill: Bool = true
     var showApprovalsInPill: Bool = true
+    var transientStyle: TransientStyle = .sweep
+    /// How long a toast holds before it fades. Sweeps ignore this -- their
+    /// duration is the travel itself.
+    var transientToastSeconds: Double = 1.8
 
     // MARK: Tabs
 
