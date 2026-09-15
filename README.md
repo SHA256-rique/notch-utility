@@ -381,14 +381,22 @@ that is the behaviour that makes notch apps annoying.
 badge · optional compact system stats
 
 **Tier 2 (tabs):** Home (customisable widget grid) · Time (multiple named
-timers, alarms with weekday repeats, Pomodoro, stopwatch) · Snippets (clipboard
-history + saved snippets + pinned, one store) · Notes · Calendar · Files
-(image/format converter) · API Tester · Docker · Terminal · AI Chat · Message
-(flash-across-the-notch) · Settings
+timers, alarms with weekday repeats, Pomodoro, stopwatch, water) · Screen Time
+(7-day chart with daily average, per-app breakdown) · Snippets (clipboard
+history + saved snippets + pinned, one store, with a task board beside it) ·
+Notes · Calendar (agenda + month grid, Apple and Google) · Files (format
+converter with size presets and a batch queue) · API Tester · Docker · Terminal
+· AI Chat · Message (flash-across-the-notch) · Settings
 
-**Home widgets:** Screen Time (with 7-day chart and per-app drill-in) · Weather
-· Sound & Light · Launch shortcuts · CPU/RAM/Disk rings · custom metric from any
-JSON endpoint
+**Home widgets:** System rings (CPU/RAM/Disk/Battery) · Sound & Light · Screen
+Time · Revenue (Stripe-backed, tap for detail) · Claude usage (tokens, streak,
+weekly chart) · Weather · Now Playing · Quick Timer (circular dial) · Word of
+the Day · Launch shortcuts. Opt-in from **+ Add Widget**: Visitors (live count,
+% change, 30-day sparkline) · custom metric from any JSON endpoint.
+
+Tiles are **drag-to-reorder** in Edit mode and the order persists. So is the tab
+dock, which also has a **+** for adding a config-driven custom tab or bringing a
+hidden built-in back.
 
 **Not tabs:** selection-aware Explain/Rewrite/Translate (global, Accessibility)
 · Teleprompter (separate always-on-top window, hidden from screen recording by
@@ -396,7 +404,8 @@ default)
 
 **Cross-cutting:** three themes (Minimal / Playful / Neon) · launch at login ·
 global hotkey · per-window hide-from-screen-recording · battery-saver switch
-with live diagnostics · config-driven custom tabs
+with live diagnostics · config-driven custom tabs · one right-to-left sweep
+animation shared by every transient pop-in
 
 **Deliberately excluded:** currency converter, world clock.
 
@@ -408,9 +417,16 @@ with live diagnostics · config-driven custom tabs
 - Weather: a latitude/longitude **rounded to two decimal places (~1.1km)**
   before it leaves the process, sent to open-meteo.com, and only while the Home
   tab is open.
+- Revenue: a request to Stripe's Charges API, with the restricted key you
+  configured, and only while a tab showing the tile is open. Or to whatever
+  endpoint you pointed it at instead.
+- Visitors: a request to **your own** analytics endpoint, if you configured one.
+- Calendar: requests to Google's Calendar API, if you linked a Google account —
+  read-only, scoped to calendars alone.
 - Anything you explicitly send from the API Tester or a custom-metric tab.
 - **Nothing else.** No analytics, no crash reporting, no update pings, no
-  account.
+  account. Claude usage is read from local files; the word of the day is
+  compiled into the binary.
 
 Settings → About lists this in the app, alongside which platform capabilities
 actually resolved on your system — including the ones that did not.
@@ -442,22 +458,31 @@ Sources/NotchBuddy/
     Approval/   the waiting-on-approval primitive + three transports
     Terminal/   pty, VT100 emulator, session, renderer
     Time/       timers, alarms, pomodoro, stopwatch
-    Snippets/   unified store + clipboard watcher
+    Snippets/   unified store + clipboard watcher + task board
+    Calendar/   EventKit and Google sources, OAuth loopback flow
     LLM/        shared streaming client
     Selection/  AX-driven selection assist
-    Widgets/    screen time, weather, sound & light, metrics
+    Widgets/    screen time, weather, sound & light, Stripe, visitors,
+                Claude usage, word packs, metrics
     Docker/ Files/ Message/ Teleprompter/
   Support/      logging, JSON store, Keychain
-Tests/          55 tests (swift-testing)
+Tests/          112 tests (swift-testing)
 Scripts/        build-app.sh · test.sh · bench-idle.sh · install-hook.sh
 ```
 
 ## Status
 
-Built to the brief in one pass. The foundation (two-tier model, polling hub,
-arbitration) and the tabs the brief asked to prioritise — system stats,
-Timers/Alarms, Clipboard/Snippets — are solid and tested. The remaining tabs
-follow the same established patterns.
+Built to the brief, then audited against it and corrected. The foundation
+(two-tier model, polling hub, arbitration) and the tabs the brief asked to
+prioritise — system stats, Timers/Alarms, Clipboard/Snippets — are solid and
+tested, and the rest follow the same established patterns.
+
+The audit pass restored three widgets that had been over-generalised into one
+tile ([ADR 0018](docs/decisions/0018-named-widgets-over-generic-metric.md)),
+made both the home grid and the tab dock genuinely reorderable, and added the
+month view, Google Calendar, the task board, the water tracker and the word
+learner. Every transient pop-in now shares one sweep animation rather than
+each feature picking its own.
 
 Known limitations are documented rather than hidden:
 [docs/learning/06-known-limitations.md](docs/learning/06-known-limitations.md).

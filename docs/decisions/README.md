@@ -28,3 +28,7 @@ file's header instead.
 | [0015](0015-self-tracked-screen-time.md) | Track screen time ourselves, not `knowledgeC.db` | Accepted |
 | [0016](0016-open-meteo-over-weatherkit.md) | Open-Meteo over WeatherKit | Accepted |
 | [0017](0017-swift-testing-over-xctest.md) | swift-testing over XCTest | Accepted |
+| [0018](0018-named-widgets-over-generic-metric.md) | Named widgets over one generic metric tile | Accepted |
+| [0019](0019-claude-usage-from-local-transcripts.md) | Claude usage from local transcripts, not an API | Accepted |
+| [0020](0020-google-oauth-loopback-over-eventkit-only.md) | Direct Google OAuth, not EventKit alone | Accepted |
+| [0021](0021-embedded-word-packs.md) | Embedded word packs, derived word of the day | Accepted |
