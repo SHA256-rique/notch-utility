@@ -850,3 +850,58 @@ struct TransientStyleTests {
         Settings.shared.data.transientToastSeconds = SettingsData().transientToastSeconds
     }
 }
+
+
+// MARK: - Panel sizing
+
+@Suite("Per-tab panel sizing")
+struct PanelSizingTests {
+
+    /// The smallest Mac this can run on is a 1280x800 Air, which leaves roughly
+    /// 1280x770 of usable screen once the menu bar is accounted for. A tab
+    /// asking for more than that would be clamped at runtime, but a declared
+    /// size that always needs clamping is a declaration nobody has checked.
+    private let ceiling = CGSize(width: 1248, height: 758)
+
+    /// Below this the panel stops being able to hold a dock, a pin, a close
+    /// button and any content at the same time.
+    private let floor = CGSize(width: 520, height: 320)
+
+    @Test("Every tab declares a size that fits the smallest supported display")
+    func tabSizesFit() {
+        for id in TabID.allCases {
+            let size = id.preferredSize
+            #expect(size.width <= ceiling.width, "\(id.rawValue) is too wide")
+            #expect(size.height <= ceiling.height, "\(id.rawValue) is too tall")
+            #expect(size.width >= floor.width, "\(id.rawValue) is too narrow to use")
+            #expect(size.height >= floor.height, "\(id.rawValue) is too short to use")
+        }
+    }
+
+    @Test("Every detail tab declares a usable size")
+    func detailSizesFit() {
+        for detail in DetailTab.allCases {
+            let size = detail.preferredSize
+            #expect(size.width <= ceiling.width, "\(detail.rawValue) is too wide")
+            #expect(size.height <= ceiling.height, "\(detail.rawValue) is too tall")
+            #expect(size.width >= floor.width, "\(detail.rawValue) is too narrow to use")
+            #expect(size.height >= floor.height, "\(detail.rawValue) is too short to use")
+        }
+    }
+
+    /// The terminal is the one tab where columns change what you can actually
+    /// run — an 80-column shell is a different tool from a 60-column one.
+    @Test("Terminal is the widest tab")
+    func terminalIsWidest() {
+        let widest = TabID.allCases.max { $0.preferredSize.width < $1.preferredSize.width }
+        #expect(widest == .terminal)
+    }
+
+    /// Snippets holds a list and the task board side by side; a narrow panel
+    /// would squeeze both into uselessness.
+    @Test("The two-panel tab is wider than the single-panel ones")
+    func twoPanelIsWider() {
+        #expect(TabID.snippets.preferredSize.width > TabID.notes.preferredSize.width)
+        #expect(TabID.snippets.preferredSize.width > TabID.message.preferredSize.width)
+    }
+}

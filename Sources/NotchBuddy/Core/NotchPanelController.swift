@@ -46,7 +46,27 @@ final class NotchPanelController: NSObject, ObservableObject {
                              + (toasting ? 120 : 0),
                       height: pillHeight + (toasting ? 44 : 0))
     }
-    private let expandedSize = CGSize(width: 680, height: 420)
+    /// Fallback for a tab that has not declared a size, and for the moment
+    /// between expanding and a tab being selected.
+    private static let defaultExpandedSize = CGSize(width: 680, height: 440)
+
+    /// The size the current tab asked for, clamped to the screen.
+    ///
+    /// Clamping matters: a 1280x800 MacBook Air with the menu bar visible has
+    /// about 770pt of usable height, and the Terminal tab asks for 510 -- fine,
+    /// but a future tab asking for 900 would push the panel off the bottom of
+    /// the display with no way to reach the close button.
+    private var expandedSize: CGSize {
+        let wanted: CGSize
+        switch activeTab {
+        case .builtin(let id):    wanted = id.preferredSize
+        case .detail(let detail): wanted = detail.preferredSize
+        case .custom, .none:      wanted = Self.defaultExpandedSize
+        }
+        let usable = layout.screen.visibleFrame
+        return CGSize(width: min(wanted.width, usable.width - 32),
+                      height: min(wanted.height, usable.height - 12))
+    }
 
     // MARK: - Internals
 
@@ -179,6 +199,11 @@ final class NotchPanelController: NSObject, ObservableObject {
         } else {
             panel.wantsKeyboardFocus = false
         }
+        // Resize to whatever the new tab wants. Only while expanded: opening a
+        // tab from the status-bar menu sets `activeTab` before `expand()` runs,
+        // and resizing a collapsed pill to 800x510 would be a brief, very
+        // visible flash of an empty window.
+        if state == .expanded { applyFrame(expandedSize, animated: true) }
         Log.tabs.debug("open tab \(String(describing: tab), privacy: .public)")
     }
 

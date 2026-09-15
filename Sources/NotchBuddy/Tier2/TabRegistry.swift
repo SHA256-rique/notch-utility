@@ -60,6 +60,37 @@ enum TabID: String, Codable, CaseIterable, Identifiable, Hashable {
         }
     }
 
+    /// How much room this tab wants when it is the one on screen.
+    ///
+    /// ## Why not one size for everything
+    /// Every tab used to open at 680x420, which meant the panel was sized for
+    /// none of them: the terminal got 28 rows on a 15" display, the Home grid
+    /// scrolled after four tiles, and the Message composer sat in a box twice
+    /// the height of its content with a grey void underneath. A single size is
+    /// only right if every tab holds the same amount, and they visibly do not.
+    ///
+    /// The panel is drawn chrome hanging from the notch, so it cannot be
+    /// user-resizable without inventing a grab handle and a persisted size per
+    /// tab. Declaring the size each tab actually wants gets most of that value
+    /// for none of that complexity, and the resize rides the same spring as the
+    /// open/close animation.
+    var preferredSize: CGSize {
+        switch self {
+        case .home:     return CGSize(width: 640, height: 470)   // ten tiles, two columns
+        case .time:     return CGSize(width: 620, height: 440)
+        case .snippets: return CGSize(width: 800, height: 450)   // list plus the task board
+        case .notes:    return CGSize(width: 600, height: 430)
+        case .calendar: return CGSize(width: 650, height: 470)   // month grid plus a day list
+        case .files:    return CGSize(width: 660, height: 440)
+        case .api:      return CGSize(width: 720, height: 480)   // request above, response below
+        case .docker:   return CGSize(width: 660, height: 400)
+        case .terminal: return CGSize(width: 820, height: 510)   // columns matter here more than anywhere
+        case .ai:       return CGSize(width: 680, height: 480)
+        case .message:  return CGSize(width: 620, height: 400)
+        case .settings: return CGSize(width: 700, height: 490)
+        }
+    }
+
     /// Tabs that need real keystrokes routed to them. The panel is a
     /// non-activating panel by default (so clicking the pill never steals focus
     /// from the user's editor); opening one of these flips `wantsKeyboardFocus`
@@ -136,6 +167,16 @@ enum DetailTab: String, CaseIterable, Identifiable, Hashable {
         case .claudeUsage: return .ai
         case .dailyWord:   return .notes
         case .storage:     return .files
+        }
+    }
+
+    var preferredSize: CGSize {
+        switch self {
+        case .screenTime:  return CGSize(width: 660, height: 480)  // chart plus a per-app list
+        case .revenue:     return CGSize(width: 640, height: 450)
+        case .claudeUsage: return CGSize(width: 680, height: 470)
+        case .dailyWord:   return CGSize(width: 620, height: 450)
+        case .storage:     return CGSize(width: 640, height: 450)
         }
     }
 }
