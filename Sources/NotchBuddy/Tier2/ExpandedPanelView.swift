@@ -59,6 +59,7 @@ struct ExpandedPanelView: View {
                 .foregroundStyle(theme.tint(claim.module))
                 .padding(.horizontal, 6).padding(.vertical, 3)
                 .background(Capsule().fill(theme.tint(claim.module).opacity(0.15)))
+                .pointerCursor()
                 .onTapGesture { controller.openTab(.builtin(.time)) }
                 .help(claim.detail ?? claim.text)
             }
@@ -71,6 +72,7 @@ struct ExpandedPanelView: View {
                     .foregroundStyle(controller.isPinned ? theme.accent : theme.secondaryText)
             }
             .buttonStyle(.plain)
+            .pointerCursor()
             .help(controller.isPinned ? "Unpin (panel will auto-collapse)" : "Pin open")
 
             Button {
@@ -81,6 +83,7 @@ struct ExpandedPanelView: View {
                     .foregroundStyle(theme.secondaryText)
             }
             .buttonStyle(.plain)
+            .pointerCursor()
             .help("Collapse")
         }
         .padding(.horizontal, 10)

@@ -109,6 +109,11 @@ struct NBButtonStyle: ButtonStyle {
             .foregroundStyle(filled ? Color.black.opacity(0.9) : tint)
             .scaleEffect(configuration.isPressed ? 0.96 : 1.0)
             .animation(Motion.interactive, value: configuration.isPressed)
+            // Every drawn button in the app routes through this style, so this
+            // one line is most of the app's click affordance. The remaining
+            // call sites are the ones that are clickable without being buttons:
+            // tiles, icons, day cells, list rows.
+            .pointerCursor()
     }
 }
 

@@ -50,6 +50,7 @@ struct TabDockView: View {
                     )
             }
             .buttonStyle(.plain)
+            .pointerCursor()
             .help("Add a tab")
             .popover(isPresented: $showAdd, arrowEdge: .bottom) {
                 AddTabPopover(isPresented: $showAdd)
@@ -85,6 +86,7 @@ struct TabDockView: View {
                 .themeGlow(info.tint, radius: isActive ? theme.glowRadius(5) : 0)
         }
         .buttonStyle(.plain)
+        .pointerCursor()
         .help(info.title)
         .opacity(dragging == item ? 0.3 : 1)
         .overlay(alignment: .leading) {

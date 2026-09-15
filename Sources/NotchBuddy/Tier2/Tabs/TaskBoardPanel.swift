@@ -133,6 +133,7 @@ struct TaskBoardPanel: View {
                     .foregroundStyle(laneTint)
             }
             .buttonStyle(.plain)
+            .pointerCursor()
             .help("Move to \(task.lane.next.title)")
 
             if editing == task.id {
@@ -163,6 +164,7 @@ struct TaskBoardPanel: View {
                 board.remove(task.id)
             } label: { Image(systemName: "xmark").font(.system(size: 8)) }
             .buttonStyle(.plain)
+            .pointerCursor()
             .foregroundStyle(theme.secondaryText.opacity(0.7))
         }
         .padding(.horizontal, 6).padding(.vertical, 5)

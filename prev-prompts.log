@@ -1,0 +1,84 @@
+1.  i build this using claude code a few hours ago , check the file , understand the project . make proper git commits
+
+ # Follow-up Prompt: NotchBuddy — Audit, Correct, and Complete
+
+ This follows an earlier prompt you (Claude Code) already partially implemented. Do not start a rebuild. Instead:
+
+ 1. **Audit first.** Go through the full checklist in §5 and classify each item as: **Done** (fully working end-to-end), **Partial/Broken** (exists but incomplete or not functioning as specified), or **Missing** (not implemented). Report this classification back before making changes.
+ 2. **Fix Partial/Broken items** — find the root cause, don't patch around it.
+ 3. **Build Missing items.**
+ 4. Everything in §2 (corrections) and §3 (new additions) takes priority even if it means changing existing code, since these are corrections to specs that were previously either dropped or generalized away without approval.
+ 5. The original non-negotiable engineering principles still apply and are not up for renegotiation: native Swift/AppKit/SwiftUI only, no shelling out for system stats, event-driven APIs over polling wherever possible, the two-tier tile/tab model (collapsed pill vs. on-demand tabs), a single central polling hub, teardown-on-close for every tab, local-first with Keychain-stored secrets, and Apple-quality spring animations throughout. If any correction or addition below seems to conflict with these, flag it rather than silently picking one side.
+
+ ---
+
+ ## 2. Corrections — these were in the original spec, dropped or wrongly generalized in the last build, put back exactly as stated
+
+ - **Revenue widget**: a real, literal Home-grid widget (not a generic "custom metric" placeholder) — $ total over last 30 days, % change, paid-customer count. Tap the tile to open a detail view. Requires the user to configure a Stripe endpoint/API key in Settings to power it.
+ - **Visitors widget**: a real, literal widget — live count, % change, 30-day sparkline. This one is **not part of the default Home grid** — it should only appear as an option inside the "+ Add Widget" picker, and only show up on the Home grid after the user explicitly adds it.
+ - **Claude usage widget**: a real, literal widget — token count, day streak, weekly bar chart. Restore as its own named widget, not folded into anything generic.
+ - **Drink Water widget**: fully missing from the last build — on/off nudge toggle, tally of glasses (with an add button), adjustable reminder interval. Belongs with the Time tab group (alongside Pomodoro/Timer/Stopwatch/Alarms) or Home — your call on placement, but it must exist.
+ - **Quick timer widget** (Home grid version): confirm this uses the circular-dial aesthetic from the original design (matching the Pomodoro/System-stats ring style), not a plain numeric countdown.
+ - **Files/converter tab** — restore full detail, not just "image/file converter": JPEG/PNG/HEIC/PDF conversion targets, a quality slider, max-size presets (1024px / 1920px / 2560px / original), and a batch queue showing a "done" output list with share/preview actions per converted file.
+ - **Clipboard tab** — restore full detail: word/char count per item, source app, timestamp, and individual pin/delete controls per clipboard entry (not just "a snippet store" with no UI specifics).
+ - **Tab dock chrome** — restore explicitly: the bottom row of tab icons must be user-reorderable (drag to rearrange), and there must be a visible "+" button to add a new tab (surfacing the config-driven custom-tab picker from the original spec).
+
+ ## 3. New additions (this follow-up)
+
+ - **Clipboard tab — add a to-do list / kanban-style panel** alongside the clipboard history, within the same tab (e.g. a secondary sub-view or side panel, your call on layout) — simple task list or lightweight kanban columns, local storage only.
+ - **Notification/pop-in animation** — any transient notification (a "copied," "conversion finished," "backup finished" style pop-in — the Tier-2 "transient" category from the arbitration rule in the original prompt) should render as a highlight that **slides right-to-left across the notch display**, not a plain fade-in-place. Apply this consistently to every transient pop-in, not per-feature custom animations.
+ - **Daily word learner** — a small feature/widget that surfaces one new word per day with its meaning and a simple example sentence. Language is user-configurable — support multiple target languages and let the user pick which one(s) they want words in. Decide whether this lives on Home as a small widget or as its own tab; either is fine, but it must be there.
+ - **Fix: Home-grid tiles must be draggable/reorderable.** This was specified in the original "Edit widgets" mode and either wasn't implemented or is broken in the current build — user cannot currently drag tiles to reorder them. Implement proper drag-and-drop reordering (e.g. SwiftUI `onDrag`/`onDrop`, or a dedicated reorder-mode with drag handles) with the resulting order persisted, not reset on relaunch.
+ - **Calendar — real Google Calendar integration**, not just relying on Apple's Calendar app/EventKit. Add an OAuth-based Google Calendar API connection so the user can link their Google account directly, as an addition or alternative to the existing Apple Calendar (EventKit) source — don't assume the user has already added Google as a macOS system calendar account.
+ - **Calendar — add a mini full-month view**: a proper month grid (day cells, event indicator dots), not only the "up next" agenda-style list from the original spec. Both should be available in the tab — agenda view for the immediate glance, month view for a wider look.
+
+ ## 4. Explicitly still excluded
+
+ - Currency converter
+ - World clock
+
+ ## 5. Full consolidated checklist (use this to drive the audit in step 1)
+
+ **Home tab widgets:** Screen Time · Revenue (tap-to-detail, Stripe-backed) · Visitors (opt-in via "+ Add Widget" only) · System stats (CPU/RAM/Disk/Battery rings) · Claude usage (tokens/streak/weekly chart) · Weather · Now Playing · Sound & Light sliders · Launch (app shortcuts) · Quick timer (circular-dial style) · Daily word learner (placement your call) · **tiles must be drag-to-reorder in Edit mode, order persisted**
+
+ **Time tab:** Pomodoro · Timer · Stopwatch · Alarms (repeat-by-weekday, snooze, custom label/sound) · Drink Water · multiple simultaneous named timers
+
+ **Screen Time tab:** today total + % change + most-used app · last-7-days bar chart with daily average · per-app breakdown list
+
+ **Clipboard tab:** searchable history (text + files) · word/char count, source app, timestamp per item · pin/delete per item · **to-do/kanban panel alongside it**
+
+ **Files tab:** JPEG/PNG/HEIC/PDF conversion · quality slider · max-size presets (1024/1920/2560/original) · batch queue with done-list + share/preview actions
+
+ **Message (flash-to-notch) tab:** free text input · Flash it / Take it down · animation styles (Scroll/Bounce/Wave/Sparkle/Pulse/Rainbow) + speed slider · color picker · "Sent before" chips sourced from the snippet store
+
+ **Custom Snippets:** user-authored quick-copy items (address, LinkedIn URL, etc.) sharing the same store as clipboard history and flash-message chips
+
+ **Calendar tab:** "up next" agenda view · **mini full-month view** · **Google Calendar OAuth integration** in addition to Apple Calendar/EventKit
+
+ **Quick Notes tab:** lightweight local scratchpad
+
+ **API Tester tab:** method/URL/headers/body in, status/timing/response out
+
+ **Docker tab:** container `ps`-equivalent glance, queried only on open
+
+ **Terminal tab:** real interactive pty-backed shell (not one-shot command execution) - this should be interactive and visually appealing like iterm2 .
+
+ **AI Chat tab:** user's own API key (or local model), Keychain-stored key, streaming if supported
+
+ **Selection-aware rewrite/translate:** global Accessibility-API text-selection listener, floating action button, not a dedicated tab, shares LLM plumbing with AI Chat
+
+ **Claude Code / CLI approval detection:** Tier-1 badge when a CLI is blocked on input · hook-based primary detection, stdout-pattern fallback, owned-pty method preferred when the Terminal tab is running the agent · expand-to-approve/deny/always-allow UI - NOT JUST CLAUDE CODE , even CODEX or any terminal process
+
+ **Teleprompter:** separate always-on-top window · adjustable speed/font size/mirror-flip/countdown · hidden from screen recording by default
+
+ **Settings/chrome:** theme picker (Minimal/Playful/Neon) · reorderable tab dock · "+" button to add config-driven custom tabs · general hide-from-screen-recording toggle · launch at login · global force-expand hotkey · explicit battery-saver / "don't poll while collapsed" toggle · menu bar extra
+
+ **Notification behavior:** transient pop-ins render as a right-to-left sliding highlight across the notch; persistent items (active timer, approval badge) hold the pill per the original arbitration rule
+
+ **Architecture constraints (unchanged from original prompt):** two-tier tile/tab model · central `WidgetPollingHub` · event-driven battery/media/clipboard-change detection · direct Darwin API system stats (no shelling out) · teardown-on-close for every tab · Keychain for secrets · idle-CPU benchmark in README · config-driven (not plugin-runtime) custom tabs
+
+ **Explicitly excluded:** currency converter · world clock
+
+ ---
+
+ Start by reporting the Done / Partial / Missing classification for every line above, then proceed through fixes and new builds in whatever order minimizes rework.

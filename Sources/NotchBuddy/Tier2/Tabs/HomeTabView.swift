@@ -542,6 +542,7 @@ struct LaunchWidget: View {
                                 .resizable().frame(width: 26, height: 26)
                         }
                         .buttonStyle(.plain)
+                        .pointerCursor()
                         .help(URL(fileURLWithPath: path).deletingPathExtension().lastPathComponent)
                         .contextMenu {
                             Button("Remove", role: .destructive) {
@@ -557,6 +558,7 @@ struct LaunchWidget: View {
                             .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.07)))
                     }
                     .buttonStyle(.plain)
+                    .pointerCursor()
                 }
             }
         }

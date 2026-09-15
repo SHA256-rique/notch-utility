@@ -220,6 +220,9 @@ struct CalendarTabView: View {
             }
         }
         .contentShape(Rectangle())
+        // Only Google events have somewhere to go; an Apple row is not a link
+        // and must not claim to be one.
+        .pointerCursor(event.openURL != nil)
         .onTapGesture { if let url = event.openURL { NSWorkspace.shared.open(url) } }
     }
 
@@ -312,6 +315,7 @@ struct CalendarTabView: View {
                 )
         )
         .contentShape(Rectangle())
+        .pointerCursor()
         .onTapGesture {
             withAnimation(Motion.tabSwitch) {
                 selectedDay = isSelected ? nil : calendar.startOfDay(for: day)
@@ -359,6 +363,7 @@ struct CalendarTabView: View {
                             .padding(.horizontal, 6).padding(.vertical, 4)
                             .background(RoundedRectangle(cornerRadius: 6).fill(theme.cardBackground))
                             .contentShape(Rectangle())
+                            .pointerCursor(event.openURL != nil)
                             .onTapGesture {
                                 if let url = event.openURL { NSWorkspace.shared.open(url) }
                             }

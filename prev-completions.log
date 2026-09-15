@@ -1,0 +1,24 @@
+Done. 10 commits on top of your existing history, working tree clean, 112 tests passing, bundle builds and runs.
+
+What the audit found, and what I did about it
+
+§2 corrections — all four were real regressions, now reverted:
+
+- Revenue was folded into a generic "number from a URL" tile. It's a real widget again, reading Stripe's Charges API directly: 30 days net of partial refunds vs. the previous 30, distinct paying customers, tap for a detail view. Zero-decimal currencies are handled — dividing JPY by 100 understates revenue by 100×, and it's invisible if you only test in dollars.
+- Visitors is back and correctly not on the default grid — it only appears in "+ Add Widget".
+- Claude usage reads your local ~/.claude/projects transcripts. No API, no key, no account link. It skips straight to the usage fragment per line rather than decoding whole conversations, and caches per file against (size, mtime).
+- Drink Water was entirely missing; it's the Time tab's fifth section.
+- Quick Timer was missing from Home, not just un-styled — it's now a real circular dial you drag, matching the ring family.
+- Files, Clipboard and the tab dock all got their missing detail back. Settings literally read "drag order isn't supported yet"; it does now.
+
+§3 additions: kanban beside clipboard history, the shared right-to-left sweep, the word learner (7 languages), home-grid drag-reorder, Google Calendar OAuth, month view.
+
+Three things worth your attention
+
+Google Calendar needs your own OAuth client. There's no way around it for an unsigned open-source app — a shipped client ID would be extracted and abused, and Google's verification needs a registered org and a privacy policy. Settings → Widgets walks through it. Once you ship under a verified account, a bundled ID becomes viable and this setup step disappears.
+
+Claude usage reads a private file format. Anthropic can change it. The failure is graceful (widget reads zero, or says "no transcripts found") and the fix is one parser. It's the same trade ApprovalPatterns already makes, and I wrote it up in ADR 0019 rather than leaving it implicit.
+
+I did not attempt calendar deduplication. The same meeting can legitimately exist in two accounts under different titles, and fuzzy title-and-time matching would sometimes hide a real second event. Showing it twice with a source badge is the better failure — but if you'd rather have dedup, say so and I'll add it behind a toggle.
+
+No conflicts with the non-negotiables: Stripe and Google are plain URLSession + Keychain, Claude usage is local file reads, every new service is hub-registered and torn down on tab close. I also found and fixed one place where I'd violated your own teardown rule — the Home detail view was layered over an opacity-0 grid, which kept every tile polling behind it.

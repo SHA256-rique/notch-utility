@@ -145,7 +145,7 @@ struct FilesTabView: View {
                         Button {
                             queue.removeAll { $0 == url }
                         } label: { Image(systemName: "xmark").font(.system(size: 8)) }
-                        .buttonStyle(.plain).foregroundStyle(theme.secondaryText)
+                        .buttonStyle(.plain).pointerCursor().foregroundStyle(theme.secondaryText)
                     }
                 }
             }

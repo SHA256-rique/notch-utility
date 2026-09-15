@@ -172,12 +172,12 @@ struct TerminalTabView: View {
             Button {
                 fontSize = max(9, fontSize - 1)
             } label: { Image(systemName: "textformat.size.smaller").font(.system(size: 9)) }
-                .buttonStyle(.plain).foregroundStyle(theme.secondaryText)
+                .buttonStyle(.plain).pointerCursor().foregroundStyle(theme.secondaryText)
                 .help("Smaller text (⌘−)")
             Button {
                 fontSize = min(20, fontSize + 1)
             } label: { Image(systemName: "textformat.size.larger").font(.system(size: 9)) }
-                .buttonStyle(.plain).foregroundStyle(theme.secondaryText)
+                .buttonStyle(.plain).pointerCursor().foregroundStyle(theme.secondaryText)
                 .help("Larger text (⌘+)")
         }
         .padding(.horizontal, 9)
