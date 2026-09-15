@@ -36,6 +36,26 @@ enum FileConverter {
         Target(name: "PDF",  utType: .pdf,  fileExtension: "pdf")
     ]
 
+    /// The longest-edge cap applied before encoding.
+    ///
+    /// Downscaling is the single biggest lever on output size -- re-encoding a
+    /// 48MP photo at 60% quality still leaves a 48MP photo. The presets are the
+    /// sizes people actually need: a retina-safe web image, a 1080p-class
+    /// asset, a 4K-class one, and untouched.
+    struct SizePreset: Identifiable, Hashable {
+        var id: String { name }
+        let name: String
+        /// nil means "leave the pixel dimensions alone".
+        let maxPixels: Int?
+    }
+
+    static let sizePresets: [SizePreset] = [
+        SizePreset(name: "1024px", maxPixels: 1024),
+        SizePreset(name: "1920px", maxPixels: 1920),
+        SizePreset(name: "2560px", maxPixels: 2560),
+        SizePreset(name: "Original", maxPixels: nil)
+    ]
+
     struct Result: Identifiable {
         let id = UUID()
         let sourceName: String
@@ -43,6 +63,9 @@ enum FileConverter {
         let error: String?
         let originalBytes: Int
         let outputBytes: Int
+        /// Small enough to keep in the done-list without holding the full image.
+        var thumbnail: NSImage? = nil
+        var pixelSize: CGSize? = nil
     }
 
     static func isImage(_ url: URL) -> Bool {
@@ -53,18 +76,19 @@ enum FileConverter {
     /// Converts sequentially on a utility queue, reporting each result as it
     /// lands so the UI fills in progressively rather than freezing then dumping.
     static func convert(urls: [URL], to target: Target, quality: Double,
+                        maxPixels: Int?,
                         progress: @escaping (Result) -> Void,
                         completion: @escaping () -> Void) {
         DispatchQueue.global(qos: .utility).async {
             for url in urls {
-                let result = convertOne(url: url, to: target, quality: quality)
+                let result = convertOne(url: url, to: target, quality: quality, maxPixels: maxPixels)
                 DispatchQueue.main.async { progress(result) }
             }
             DispatchQueue.main.async { completion() }
         }
     }
 
-    private static func convertOne(url: URL, to target: Target, quality: Double) -> Result {
+    private static func convertOne(url: URL, to target: Target, quality: Double, maxPixels: Int?) -> Result {
         let originalBytes = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
 
         guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
@@ -76,7 +100,7 @@ enum FileConverter {
         // PDF is not a CGImageDestination type in the same way; route it through
         // a single-page PDF context instead of pretending it is a bitmap format.
         if target.utType == .pdf {
-            return convertToPDF(source: source, url: url, originalBytes: originalBytes)
+            return convertToPDF(source: source, url: url, originalBytes: originalBytes, maxPixels: maxPixels)
         }
 
         let outputURL = uniqueDestination(for: url, extension: target.fileExtension)
@@ -92,18 +116,75 @@ enum FileConverter {
             options[kCGImagePropertyOrientation] = properties[kCGImagePropertyOrientation]
         }
 
-        CGImageDestinationAddImageFromSource(destination, source, 0, options as CFDictionary)
+        var finalSize: CGSize?
+        if let scaled = downscaled(source: source, maxPixels: maxPixels) {
+            // `CreateThumbnailAtIndex` applies the EXIF rotation itself, so the
+            // orientation tag must NOT be carried over as well -- doing both
+            // rotates the image twice, which is the classic sideways-photo bug.
+            options.removeValue(forKey: kCGImagePropertyOrientation)
+            CGImageDestinationAddImage(destination, scaled, options as CFDictionary)
+            finalSize = CGSize(width: scaled.width, height: scaled.height)
+        } else {
+            CGImageDestinationAddImageFromSource(destination, source, 0, options as CFDictionary)
+            finalSize = pixelSize(of: source)
+        }
+
         guard CGImageDestinationFinalize(destination) else {
             return Result(sourceName: url.lastPathComponent, outputURL: nil,
                           error: "Encoding failed", originalBytes: originalBytes, outputBytes: 0)
         }
         let outputBytes = (try? outputURL.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
         return Result(sourceName: url.lastPathComponent, outputURL: outputURL,
-                      error: nil, originalBytes: originalBytes, outputBytes: outputBytes)
+                      error: nil, originalBytes: originalBytes, outputBytes: outputBytes,
+                      thumbnail: thumbnail(for: outputURL), pixelSize: finalSize)
     }
 
-    private static func convertToPDF(source: CGImageSource, url: URL, originalBytes: Int) -> Result {
-        guard let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else {
+    /// Returns a downscaled image, or nil when no downscale is needed.
+    ///
+    /// `CGImageSourceCreateThumbnailAtIndex` rather than drawing into a smaller
+    /// context: it decodes at reduced scale, so a 48MP source never becomes a
+    /// 48MP bitmap in memory on the way to being a 1920px one. On a batch of
+    /// large photos that is the difference between a few hundred megabytes and
+    /// a few gigabytes of peak RSS.
+    private static func downscaled(source: CGImageSource, maxPixels: Int?) -> CGImage? {
+        guard let maxPixels else { return nil }
+        guard let size = pixelSize(of: source) else { return nil }
+        let longestEdge = Int(max(size.width, size.height))
+        // Never upscale. A preset is a cap, not a target.
+        guard longestEdge > maxPixels else { return nil }
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceThumbnailMaxPixelSize: maxPixels
+        ]
+        return CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)
+    }
+
+    private static func pixelSize(of source: CGImageSource) -> CGSize? {
+        guard let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+              let width = properties[kCGImagePropertyPixelWidth] as? Int,
+              let height = properties[kCGImagePropertyPixelHeight] as? Int else { return nil }
+        return CGSize(width: width, height: height)
+    }
+
+    /// A small preview of the *output*, so the done-list shows what was actually
+    /// produced rather than what went in. Capped at 96px because it is rendered
+    /// at 34pt and a batch of forty holds forty of these.
+    static func thumbnail(for url: URL, maxPixels: Int = 96) -> NSImage? {
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceThumbnailMaxPixelSize: maxPixels
+        ]
+        guard let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else { return nil }
+        return NSImage(cgImage: image, size: NSSize(width: image.width, height: image.height))
+    }
+
+    private static func convertToPDF(source: CGImageSource, url: URL, originalBytes: Int,
+                                     maxPixels: Int?) -> Result {
+        guard let image = downscaled(source: source, maxPixels: maxPixels)
+                ?? CGImageSourceCreateImageAtIndex(source, 0, nil) else {
             return Result(sourceName: url.lastPathComponent, outputURL: nil,
                           error: "Cannot decode", originalBytes: originalBytes, outputBytes: 0)
         }
@@ -119,7 +200,9 @@ enum FileConverter {
         context.closePDF()
         let outputBytes = (try? outputURL.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
         return Result(sourceName: url.lastPathComponent, outputURL: outputURL,
-                      error: nil, originalBytes: originalBytes, outputBytes: outputBytes)
+                      error: nil, originalBytes: originalBytes, outputBytes: outputBytes,
+                      thumbnail: thumbnail(for: outputURL),
+                      pixelSize: CGSize(width: image.width, height: image.height))
     }
 
     /// Never silently overwrite. "photo.png", then "photo-1.png", and so on.
