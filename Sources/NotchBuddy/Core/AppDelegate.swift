@@ -42,6 +42,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         // 3. Persisted state.
         SnippetStore.shared.start()
+        TaskBoard.shared.start()
         TimeEngine.shared.start()
         WaterTracker.shared.start()
 
@@ -95,6 +96,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // be lost because the user quit 200ms after typing.
         Settings.shared.flush()
         SnippetStore.shared.flush()
+        TaskBoard.shared.flush()
         TimeEngine.shared.flush()
         WaterTracker.shared.flush()
         DailyWordService.shared.flush()

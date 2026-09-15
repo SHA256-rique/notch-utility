@@ -4,6 +4,12 @@ import AppKit
 /// Snippets: the one list that is simultaneously clipboard history, the user's
 /// saved boilerplate, and the pinned set. The filter chips are the only thing
 /// separating them, because underneath they are the same rows.
+///
+/// The task board shares this tab as a right-hand side panel. The two features
+/// are the same gesture at different time scales -- something crossed your
+/// attention and you want it back later -- and having both on screen makes
+/// "turn this clipboard entry into a task" one button rather than a cross-tab
+/// round trip.
 struct SnippetsTabView: View {
     enum Filter: String, CaseIterable, Identifiable {
         case all = "All", clipboard = "Clipboard", saved = "Saved", pinned = "Pinned"
@@ -19,16 +25,33 @@ struct SnippetsTabView: View {
     @State private var draftBody = ""
     @State private var draftTag = ""
     @State private var editingID: UUID?
+    @AppStorage("snippets.showTasks") private var showTasks = true
 
     var body: some View {
         let theme = themes.theme
+        HStack(spacing: 0) {
+            clipboardSide(theme)
+
+            if showTasks {
+                Divider().overlay(theme.panelStroke)
+                TaskBoardPanel()
+                    .frame(width: 216)
+                    .padding(.horizontal, 10)
+                    .padding(.top, 8)
+                    .transition(.move(edge: .trailing).combined(with: .opacity))
+            }
+        }
+        .animation(Motion.sheet, value: showTasks)
+    }
+
+    private func clipboardSide(_ theme: Theme) -> some View {
         VStack(spacing: 8) {
             HStack(spacing: 6) {
                 NBTextField(placeholder: "Search snippets…", text: $query)
                 Picker("", selection: $filter) {
                     ForEach(Filter.allCases) { Text($0.rawValue).tag($0) }
                 }
-                .pickerStyle(.segmented).labelsHidden().frame(width: 220)
+                .pickerStyle(.segmented).labelsHidden().frame(width: showTasks ? 180 : 220)
                 Button {
                     withAnimation(Motion.sheet) {
                         isComposing.toggle()
@@ -39,6 +62,15 @@ struct SnippetsTabView: View {
                     Image(systemName: isComposing ? "xmark" : "plus").font(.system(size: 10, weight: .bold))
                 }
                 .buttonStyle(NBButtonStyle(tint: theme.tint(.snippets), filled: !isComposing))
+
+                Button {
+                    withAnimation(Motion.sheet) { showTasks.toggle() }
+                } label: {
+                    Image(systemName: showTasks ? "sidebar.right" : "checklist")
+                        .font(.system(size: 10, weight: .bold))
+                }
+                .buttonStyle(NBButtonStyle(tint: theme.tint(.time), filled: showTasks))
+                .help(showTasks ? "Hide the task board" : "Show the task board")
             }
             .padding(.horizontal, 12).padding(.top, 8)
 
@@ -160,6 +192,15 @@ struct SnippetsTabView: View {
                     .help("Flash across the notch")
 
                     Button {
+                        TaskBoard.shared.add(snippet.payload.asText, from: snippet.id)
+                        NotchArbiter.shared.flash("Added to tasks", symbol: "checklist",
+                                                  module: .snippets, detail: snippet.displayTitle)
+                        withAnimation(Motion.sheet) { showTasks = true }
+                    } label: { Image(systemName: "checklist").font(.system(size: 9)) }
+                    .buttonStyle(NBButtonStyle(tint: theme.tint(.time), compact: true))
+                    .help("Make a task from this")
+
+                    Button {
                         store.togglePin(snippet.id)
                     } label: {
                         Image(systemName: snippet.isPinned ? "pin.fill" : "pin")
@@ -190,6 +231,9 @@ struct SnippetsTabView: View {
                 Button("Save as snippet") {
                     store.add(text: snippet.payload.asText, title: "", tag: "")
                 }
+            }
+            Button("Make a task") {
+                TaskBoard.shared.add(snippet.payload.asText, from: snippet.id)
             }
             Divider()
             Button("Delete", role: .destructive) { store.remove(snippet.id) }
