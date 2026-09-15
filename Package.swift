@@ -33,7 +33,9 @@ let package = Package(
                 .linkedFramework("ServiceManagement"),
                 .linkedFramework("CoreLocation"),
                 .linkedFramework("UserNotifications"),
-                .linkedFramework("AVFoundation")
+                .linkedFramework("AVFoundation"),
+                .linkedFramework("Network"),
+                .linkedFramework("CryptoKit")
             ]
         ),
         // Tests cover the parts that are pure logic and therefore genuinely

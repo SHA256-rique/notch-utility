@@ -15,6 +15,7 @@ struct WidgetSettings: View {
     var body: some View {
         RevenueSettingsSection()
         VisitorsSettingsSection()
+        CalendarSettingsSection()
         WordSettingsSection()
         WaterSettingsSection()
     }
@@ -259,5 +260,72 @@ struct WaterSettingsSection: View {
                     .font(.system(size: 10))
             }
         }
+    }
+}
+
+
+// MARK: - Calendar
+
+struct CalendarSettingsSection: View {
+    @EnvironmentObject private var themes: ThemeManager
+    @ObservedObject private var settings = Settings.shared
+    @StateObject private var google = GoogleCalendarService()
+    @State private var secretDraft = ""
+    @State private var hasSecret = Keychain.has(GoogleCalendarService.clientSecretAccount)
+
+    var body: some View {
+        let theme = themes.theme
+        NBSectionHeader(title: "Calendar sources")
+        NBCard(tint: .calendar, padding: 9) {
+            VStack(alignment: .leading, spacing: 8) {
+                Toggle("Use the Mac's own calendars (EventKit)",
+                       isOn: $settings.data.calendarUseAppleEventKit)
+                    .font(.system(size: 11)).toggleStyle(.checkbox)
+
+                Divider().overlay(theme.panelStroke)
+
+                Toggle("Link Google Calendar directly", isOn: $settings.data.calendarUseGoogle)
+                    .font(.system(size: 11)).toggleStyle(.checkbox)
+
+                Text("Linking Google here does not add an account to macOS. The grant is read-only and covers calendars alone — not your mail or contacts — and you can revoke it from your Google account page at any time.")
+                    .font(.system(size: 9)).foregroundStyle(theme.secondaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                if settings.data.calendarUseGoogle {
+                    NBTextField(placeholder: "OAuth client ID (…apps.googleusercontent.com)",
+                                text: $settings.data.googleOAuthClientID, monospaced: true)
+
+                    HStack(spacing: 6) {
+                        SecureField(hasSecret ? "•••••••• stored in Keychain"
+                                              : "Client secret (Desktop app clients have one)",
+                                    text: $secretDraft)
+                            .textFieldStyle(.plain)
+                            .font(.system(size: 11, design: .monospaced))
+                            .padding(.horizontal, 9).padding(.vertical, 6)
+                            .background(RoundedRectangle(cornerRadius: 8).fill(Color.white.opacity(0.07)))
+                        Button("Save") {
+                            Keychain.set(secretDraft.trimmingCharacters(in: .whitespacesAndNewlines),
+                                         for: GoogleCalendarService.clientSecretAccount)
+                            secretDraft = ""
+                            hasSecret = Keychain.has(GoogleCalendarService.clientSecretAccount)
+                        }
+                        .buttonStyle(NBButtonStyle(tint: theme.tint(.calendar), filled: true, compact: true))
+                        .disabled(secretDraft.isEmpty)
+                    }
+
+                    GoogleConnectButton(service: google)
+
+                    if case .failed(let message) = google.state {
+                        Text(message).font(.system(size: 9)).foregroundStyle(.orange)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+
+                    Text("Create a **Desktop app** OAuth client in Google Cloud Console → APIs & Services → Credentials, and enable the Google Calendar API for that project. Sign-in uses PKCE with a loopback redirect, so the \"secret\" is not treated as one — the code exchange is protected by a verifier that never leaves this Mac.")
+                        .font(.system(size: 9)).foregroundStyle(theme.secondaryText)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+        .onAppear { google.activate() }
     }
 }
