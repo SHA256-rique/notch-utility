@@ -184,3 +184,94 @@ struct NBTextField: View {
             .onSubmit { onSubmit?() }
     }
 }
+
+// MARK: - The transient sweep
+
+/// Every transient pop-in in the app -- "Copied", "Converted 3 files", "Backup
+/// finished" -- enters the same way: a highlight that travels **right to left**
+/// across the notch and settles on the left shoulder, then leaves by continuing
+/// left rather than fading where it stands.
+///
+/// This is deliberately one shared transition rather than a per-feature
+/// animation. The notch is a single ~700pt-wide surface; if the clipboard toast
+/// fades, the converter toast scales and the backup toast drops in, the surface
+/// reads as three unrelated widgets sharing a strip of glass. One motion for one
+/// category of message is what makes it read as a single piece of hardware.
+///
+/// `progress` is 1 when the content is parked off the right edge and 0 at rest.
+/// Removal drives it negative so the exit continues the same leftward travel
+/// instead of reversing it -- a reversal would read as "it came back", which is
+/// the wrong story for a message that has just expired.
+struct NotchSweep: ViewModifier, Animatable {
+    var progress: Double
+    var distance: CGFloat
+
+    var animatableData: Double {
+        get { progress }
+        set { progress = newValue }
+    }
+
+    func body(content: Content) -> some View {
+        content
+            .offset(x: distance * CGFloat(progress))
+            // Fade only near the ends of the travel, so the middle of the sweep
+            // is fully opaque and the eye can actually read the text in motion.
+            .opacity(1 - min(1, abs(progress) * 1.6))
+            // A touch of horizontal compression while travelling. Real objects
+            // moving fast do not stay geometrically perfect, and this is the
+            // cheapest possible nod to that without a motion-blur shader.
+            .scaleEffect(x: 1 - min(0.12, abs(progress) * 0.2), y: 1, anchor: .center)
+    }
+}
+
+extension AnyTransition {
+    /// Right-to-left traverse across the notch. `distance` should be the full
+    /// travel width -- the collapsed pill's width -- so the content genuinely
+    /// starts beyond the right edge instead of popping in halfway.
+    static func notchSweep(distance: CGFloat) -> AnyTransition {
+        .asymmetric(
+            insertion: .modifier(active: NotchSweep(progress: 1.0, distance: distance),
+                                 identity: NotchSweep(progress: 0, distance: distance)),
+            removal: .modifier(active: NotchSweep(progress: -0.75, distance: distance),
+                               identity: NotchSweep(progress: 0, distance: distance))
+        )
+    }
+}
+
+extension Motion {
+    /// The transient sweep. Slower response than `pillContent` because the
+    /// content is crossing the whole width of the notch rather than appearing in
+    /// place, and higher damping because a toast that overshoots and settles
+    /// back rightward contradicts the direction of travel.
+    static let sweepIn = Animation.spring(response: 0.46, dampingFraction: 0.90)
+    /// The exit continues leftward and does not need to settle, so it is eased.
+    static let sweepOut = Animation.easeIn(duration: 0.26)
+}
+
+/// The moving specular band that rides along with a sweeping transient.
+///
+/// It is a plain animated gradient offset rather than a `.mask` over live
+/// content: masking the text would force SwiftUI to rasterise the label every
+/// frame of the sweep, which is exactly the kind of cost this app spends its
+/// whole architecture avoiding.
+struct SweepHighlight: View {
+    var tint: Color
+    @State private var phase: CGFloat = -1
+
+    var body: some View {
+        GeometryReader { geo in
+            LinearGradient(
+                colors: [.clear, tint.opacity(0.28), .clear],
+                startPoint: .leading, endPoint: .trailing
+            )
+            .frame(width: geo.size.width * 0.45)
+            .offset(x: geo.size.width * phase)
+            .blendMode(.plusLighter)
+            .allowsHitTesting(false)
+            .onAppear {
+                phase = 1.2
+                withAnimation(.easeOut(duration: 0.55)) { phase = -0.6 }
+            }
+        }
+    }
+}
