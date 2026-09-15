@@ -19,6 +19,12 @@ final class NotchPanelController: NSObject, ObservableObject {
     @Published private(set) var state: PanelState = .collapsed
     @Published private(set) var isPinned = false
     @Published var activeTab: ActiveTab? = nil
+    /// Detail tabs currently open, in the order they were opened.
+    ///
+    /// Not persisted, on purpose. A relaunch starts with none open, because none
+    /// of these is where the user left off working -- restoring a storage report
+    /// from three days ago would be clutter presented as continuity.
+    @Published private(set) var openDetails: [DetailTab] = []
     @Published private(set) var isHovering = false
 
     // MARK: - Geometry
@@ -171,6 +177,68 @@ final class NotchPanelController: NSObject, ObservableObject {
         Log.tabs.debug("close tab \(String(describing: self.activeTab), privacy: .public)")
         activeTab = nil
         panel.wantsKeyboardFocus = false
+    }
+
+    // MARK: - Detail tabs
+
+    /// Where to go when the active detail is closed.
+    ///
+    /// One slot, not a stack. A back-stack would mean closing a detail could
+    /// land you somewhere you have no memory of being, three steps ago; the
+    /// useful behaviour is "put me back where I opened this from", and that is
+    /// one value.
+    private var detailReturnTab: ActiveTab?
+
+    /// Opens a detail tab, or focuses it if it is already open.
+    ///
+    /// Re-opening an already-open detail deliberately does not reset it -- the
+    /// dock is showing it, so the user's model is that it is still the same tab.
+    func openDetail(_ detail: DetailTab) {
+        if !openDetails.contains(detail) {
+            openDetails.append(detail)
+        }
+        // Only remember a return target when coming from something that is not
+        // itself a detail; otherwise closing two details in a row would bounce
+        // between them.
+        if case .detail = activeTab {} else {
+            detailReturnTab = activeTab
+        }
+        openTab(.detail(detail))
+    }
+
+    /// Closes a detail tab. If it was the active one, returns to wherever it was
+    /// opened from -- or to the next remaining detail, or Home.
+    func closeDetail(_ detail: DetailTab) {
+        let wasActive = activeTab == .detail(detail)
+        openDetails.removeAll { $0 == detail }
+
+        guard wasActive else { return }
+        if let returnTab = detailReturnTab, isStillValid(returnTab) {
+            detailReturnTab = nil
+            openTab(returnTab)
+        } else if let next = openDetails.last {
+            openTab(.detail(next))
+        } else {
+            openTab(.builtin(.home))
+        }
+    }
+
+    func closeAllDetails() {
+        if case .detail = activeTab { openTab(.builtin(.home)) }
+        openDetails.removeAll()
+    }
+
+    /// A remembered return target can go stale -- a custom tab deleted while a
+    /// detail was open, or a built-in hidden from the dock.
+    private func isStillValid(_ tab: ActiveTab) -> Bool {
+        switch tab {
+        case .builtin(let id):
+            return Settings.shared.data.enabledTabs.contains(id.rawValue)
+        case .custom(let uuid):
+            return Settings.shared.data.customTabs.contains { $0.id == uuid }
+        case .detail(let detail):
+            return openDetails.contains(detail)
+        }
     }
 
     // MARK: - The power rule, in one place

@@ -10,15 +10,20 @@ import UniformTypeIdentifiers
 /// resources -- the stats consumer, the audio listener, the metric's hub slot.
 ///
 /// ## Detail views
-/// A tile that has more to say (Revenue, Claude usage, Word of the day) pushes a
-/// detail view *over the grid* rather than opening a tab. That keeps the two-tier
-/// model intact: tabs are things you go to, tiles are things you glance at, and
-/// a tile's detail is still part of the glance.
+/// A tile that has more to say -- Revenue, Claude usage, Word of the day, Screen
+/// Time, Storage -- opens a **detail tab**: it appears in the dock with a close
+/// button and you leave by closing it, the way an editor handles a file you
+/// opened to look at once.
+///
+/// The earlier version pushed a detail view over the grid instead. That worked
+/// but it hid the way back, and it meant the panel had two different
+/// navigation models in it: tabs along the top, and a private back button
+/// inside Home. One model is better than two, and the dock already had the
+/// close affordance the pushed view was missing.
 struct HomeTabView: View {
     @EnvironmentObject private var themes: ThemeManager
     @EnvironmentObject private var settings: Settings
     @State private var isEditing = false
-    @State private var detail: HomeWidgetKind?
     /// The tile currently under the cursor during a drag. Held here rather than
     /// per-tile so only one insertion marker can ever be showing.
     @State private var dropTarget: HomeWidgetKind?
@@ -27,25 +32,7 @@ struct HomeTabView: View {
     private let columns = [GridItem(.flexible(), spacing: 8), GridItem(.flexible(), spacing: 8)]
 
     var body: some View {
-        let theme = themes.theme
-        // A `switch`, not a ZStack with an opacity-0 grid underneath. Keeping
-        // the grid mounted behind the detail view would leave every tile's
-        // poller running -- including a second Stripe client alongside the
-        // detail's own -- which is precisely the pattern `ExpandedPanelView`
-        // refuses for tabs. The same rule has to hold one level down or it is
-        // not a rule.
-        Group {
-            if let detail {
-                detailView(detail)
-                    .transition(.asymmetric(
-                        insertion: .offset(x: 30).combined(with: .opacity),
-                        removal: .offset(x: 30).combined(with: .opacity)))
-            } else {
-                grid(theme)
-                    .transition(.opacity)
-            }
-        }
-        .animation(Motion.sheet, value: detail)
+        grid(themes.theme)
     }
 
     // MARK: - Grid
@@ -178,36 +165,12 @@ struct HomeTabView: View {
         case .weather:      WeatherWidget()
         case .launch:       LaunchWidget()
         case .customMetric: CustomMetricWidget()
-        case .revenue:      RevenueWidget(onOpenDetail: { detail = .revenue })
+        case .revenue:      RevenueWidget()
         case .visitors:     VisitorsWidget()
-        case .claudeUsage:  ClaudeUsageWidget(onOpenDetail: { detail = .claudeUsage })
+        case .claudeUsage:  ClaudeUsageWidget()
         case .nowPlaying:   NowPlayingWidget()
         case .quickTimer:   QuickTimerWidget()
-        case .dailyWord:    DailyWordWidget(onOpenDetail: { detail = .dailyWord })
-        }
-    }
-
-    @ViewBuilder
-    private func detailView(_ kind: HomeWidgetKind) -> some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 6) {
-                Button {
-                    detail = nil
-                } label: {
-                    Label("Home", systemImage: "chevron.left")
-                        .font(.system(size: 11, weight: .medium))
-                }
-                .buttonStyle(NBButtonStyle(tint: themes.theme.tint(.home), compact: true))
-                Spacer()
-            }
-            .padding(.horizontal, 12).padding(.top, 10).padding(.bottom, 4)
-
-            switch kind {
-            case .revenue:     RevenueDetailView()
-            case .claudeUsage: ClaudeUsageDetailView()
-            case .dailyWord:   DailyWordDetailView()
-            default:           NBEmptyState(symbol: "square.dashed", title: "No detail view")
-            }
+        case .dailyWord:    DailyWordWidget()
         }
     }
 
@@ -267,6 +230,7 @@ struct HomeTabView: View {
 
 struct SystemRingsWidget: View {
     @EnvironmentObject private var themes: ThemeManager
+    @EnvironmentObject private var controller: NotchPanelController
     @ObservedObject private var stats = SystemStats.shared
     @ObservedObject private var battery = BatteryMonitor.shared
 
@@ -278,7 +242,14 @@ struct SystemRingsWidget: View {
                 HStack(spacing: 10) {
                     ring("CPU", stats.snapshot.cpuPercent, theme.tint(.system), theme)
                     ring("RAM", stats.snapshot.memPercent, theme.tint(.home), theme)
+                    // Disk is the one ring with somewhere to go. "How full is
+                    // it" always leads to "what is filling it", so the ring is
+                    // the door to the storage report rather than a sixth tile
+                    // on a grid that already has ten.
                     ring("Disk", stats.snapshot.diskPercent, theme.tint(.files), theme)
+                        .pointerCursor()
+                        .onTapGesture { controller.openDetail(.storage) }
+                        .help("Storage details and Bin")
                     // The battery ring is driven by the IOKit power-source
                     // notification, not by the stats poll -- it costs nothing to
                     // show and it is the number people actually came to check.
@@ -412,7 +383,7 @@ struct ScreenTimeWidget: View {
             VStack(alignment: .leading, spacing: 8) {
                 HStack {
                     NBSectionHeader(title: "Screen Time")
-                    Button("Open") { controller.openTab(.builtin(.screenTime)) }
+                    Button("Open") { controller.openDetail(.screenTime) }
                         .buttonStyle(NBButtonStyle(tint: theme.tint(.home), compact: true))
                 }
 

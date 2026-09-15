@@ -39,7 +39,7 @@
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>Used only to pick a weather location for the Weather widget. Your coordinates are rounded before being sent to the weather service.</string>
 	<key>NSAppleEventsUsageDescription</key>
-	<string>Used to open files and apps from the Launch widget.</string>
+	<string>Used to open files and apps from the Launch widget, and to ask Finder to empty the Bin when you choose Empty Bin in Storage.</string>
 	<key>NSDesktopFolderUsageDescription</key>
 	<string>Used when you drop files onto the notch for conversion.</string>
 	<key>NSDocumentsFolderUsageDescription</key>

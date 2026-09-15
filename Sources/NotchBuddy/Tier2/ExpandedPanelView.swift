@@ -109,6 +109,10 @@ struct ExpandedPanelView: View {
                     NBEmptyState(symbol: "questionmark.square.dashed",
                                  title: "Tab no longer configured")
                 }
+            case .detail(let detail):
+                detailTab(detail)
+                    .transition(.opacity.combined(with: .offset(y: 6)))
+                    .id(detail)
             case .none:
                 HomeTabView()
                     .transition(.opacity)
@@ -122,7 +126,6 @@ struct ExpandedPanelView: View {
         switch id {
         case .home:     HomeTabView()
         case .time:     TimeTabView()
-        case .screenTime: ScreenTimeTabView()
         case .snippets: SnippetsTabView()
         case .notes:    NotesTabView()
         case .calendar: CalendarTabView()
@@ -133,6 +136,20 @@ struct ExpandedPanelView: View {
         case .ai:       AIChatTabView()
         case .message:  MessageTabView()
         case .settings: SettingsTabView()
+        }
+    }
+
+    /// Detail bodies get the same treatment as built-ins: exactly one is ever
+    /// constructed, and `.id(detail)` on the branch above forces a full teardown
+    /// when the user switches away. Closing a detail destroys it outright.
+    @ViewBuilder
+    private func detailTab(_ detail: DetailTab) -> some View {
+        switch detail {
+        case .screenTime:  ScreenTimeTabView()
+        case .revenue:     RevenueDetailView()
+        case .claudeUsage: ClaudeUsageDetailView()
+        case .dailyWord:   DailyWordDetailView()
+        case .storage:     StorageDetailView()
         }
     }
 }

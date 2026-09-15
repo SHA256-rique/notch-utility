@@ -637,11 +637,37 @@ struct TabDockTests {
         #expect(moved.first == TabID.terminal.rawValue)
     }
 
-    @Test("Screen Time is a first-class tab")
-    func screenTimeIsATab() {
-        #expect(TabID.allCases.contains(.screenTime))
-        #expect(TabID.defaultOrder.contains(TabID.screenTime.rawValue))
-        #expect(!TabID.screenTime.title.isEmpty)
+    /// Screen Time is a detail tab, not a dock tab: you look at it occasionally
+    /// and then stop. The rule for which a thing should be -- would you be
+    /// annoyed to find it gone tomorrow, or annoyed to find it still there --
+    /// puts it on the detail side.
+    @Test("Screen Time is a detail tab, not a permanent one")
+    func screenTimeIsADetail() {
+        #expect(DetailTab.allCases.contains(.screenTime))
+        #expect(!TabID.allCases.map(\.rawValue).contains("screenTime"))
+    }
+
+    @Test("Every detail tab is well formed and distinct")
+    func detailsAreWellFormed() {
+        let raws = DetailTab.allCases.map(\.rawValue)
+        #expect(Set(raws).count == raws.count)
+        for detail in DetailTab.allCases {
+            #expect(!detail.symbol.isEmpty)
+            #expect(!detail.title.isEmpty)
+            // The dock is a strip, not a menu: a long label pushes the icons off
+            // the end of a 680pt panel that also holds pin and close.
+            #expect(!detail.shortTitle.isEmpty)
+            #expect(detail.shortTitle.count <= 8, "\(detail.rawValue) label is too long for the dock")
+        }
+    }
+
+    /// A stale `enabledTabs` entry -- "screenTime", left over from when it was a
+    /// dock tab -- must not survive into the dock as a phantom entry.
+    @Test("Unknown tab ids are dropped from a stored dock")
+    func staleTabIdsAreDropped() {
+        let stored = ["home", "screenTime", "time", "notAThing", "settings"]
+        let resolved = stored.compactMap(TabID.init(rawValue:))
+        #expect(resolved == [.home, .time, .settings])
     }
 
     @Test("Every tab has a distinct raw value and a symbol")
@@ -687,5 +713,68 @@ struct BroadApprovalTests {
         #expect(ApprovalPatterns.match(in: "Compiling NotchBuddy TerminalEmulator.swift") == nil)
         #expect(ApprovalPatterns.match(in: "the docs describe a [y/N] prompt somewhere in the middle") == nil)
         #expect(ApprovalPatterns.match(in: "approved by the reviewer last week") == nil)
+    }
+}
+
+
+// MARK: - Storage
+
+@Suite("Storage — capacity arithmetic")
+struct StorageTests {
+
+    private func volume(total: UInt64, available: UInt64, strict: UInt64? = nil,
+                        root: Bool = true) -> StorageService.Volume {
+        StorageService.Volume(url: URL(fileURLWithPath: "/"), name: "Macintosh HD",
+                              total: total, available: available,
+                              availableStrict: strict ?? available,
+                              isRoot: root, isRemovable: false)
+    }
+
+    @Test("Used space is total minus what is actually available")
+    func usedSpace() {
+        let disk = volume(total: 500_000_000_000, available: 120_000_000_000)
+        #expect(disk.used == 380_000_000_000)
+        #expect(abs(disk.usedFraction - 0.76) < 0.001)
+    }
+
+    /// Purgeable space is the gap between the number Finder shows and the
+    /// stricter one. It is neither used nor free, and reporting it as either
+    /// would make this disagree with Finder — which is the whole reason the
+    /// widget reads the importantUsage key in the first place.
+    @Test("Purgeable is the gap between the two free-space figures")
+    func purgeable() {
+        let disk = volume(total: 500_000_000_000,
+                          available: 120_000_000_000,
+                          strict: 80_000_000_000)
+        #expect(disk.purgeable == 40_000_000_000)
+    }
+
+    @Test("No purgeable space when the two figures agree")
+    func noPurgeable() {
+        #expect(volume(total: 100, available: 40, strict: 40).purgeable == 0)
+        // Defensive: the strict figure should never exceed the inclusive one,
+        // but an underflow on UInt64 here would report exabytes of purgeable.
+        #expect(volume(total: 100, available: 40, strict: 60).purgeable == 0)
+    }
+
+    @Test("An empty or unreadable volume does not divide by zero")
+    func zeroCapacity() {
+        let disk = volume(total: 0, available: 0)
+        #expect(disk.usedFraction == 0)
+        #expect(disk.used == 0)
+    }
+
+    /// A volume that reports more available than total would otherwise wrap
+    /// `used` around to a colossal number via UInt64 underflow.
+    @Test("Available exceeding total does not underflow")
+    func noUnderflow() {
+        let disk = volume(total: 100, available: 200)
+        #expect(disk.used == 0)
+    }
+
+    @Test("An empty Bin reports as empty")
+    func binEmptiness() {
+        #expect(StorageService.BinContents(itemCount: 0, bytes: 0, isMeasuring: false).isEmpty)
+        #expect(!StorageService.BinContents(itemCount: 3, bytes: 900, isMeasuring: false).isEmpty)
     }
 }

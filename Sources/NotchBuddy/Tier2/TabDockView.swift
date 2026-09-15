@@ -23,6 +23,8 @@ struct TabDockView: View {
     @State private var dragging: ActiveTab?
     @State private var dropTarget: ActiveTab?
     @State private var showAdd = false
+    @State private var hovering: DetailTab?
+    @State private var hoveringClose: DetailTab?
 
     var body: some View {
         let theme = themes.theme
@@ -32,8 +34,23 @@ struct TabDockView: View {
                     ForEach(items, id: \.self) { item in
                         button(for: item, theme: theme)
                     }
+
+                    // Detail tabs sit after a divider, carry a label and a close
+                    // button, and are not draggable. All three differences say
+                    // the same thing: these are temporary and the permanent ones
+                    // are over there.
+                    if !controller.openDetails.isEmpty {
+                        Rectangle()
+                            .fill(theme.panelStroke)
+                            .frame(width: 1, height: 14)
+                            .padding(.horizontal, 2)
+                        ForEach(controller.openDetails) { detail in
+                            detailButton(detail, theme: theme)
+                        }
+                    }
                 }
                 .padding(.vertical, 1)
+                .animation(Motion.tabSwitch, value: controller.openDetails)
             }
 
             Button {
@@ -59,6 +76,56 @@ struct TabDockView: View {
                     .environmentObject(controller)
             }
         }
+    }
+
+    /// A detail tab: icon, short label, and a close button that only appears on
+    /// hover or while the tab is active -- an always-visible × on every tab is
+    /// four pieces of chrome competing with the icons they sit next to.
+    private func detailButton(_ detail: DetailTab, theme: Theme) -> some View {
+        let isActive = controller.activeTab == .detail(detail)
+        let tint = theme.tint(detail.tint)
+        return HStack(spacing: 4) {
+            Image(systemName: detail.symbol)
+                .font(.system(size: 10, weight: .medium))
+            Text(detail.shortTitle)
+                .font(.system(size: 10, weight: .medium))
+                .lineLimit(1)
+
+            Button {
+                controller.closeDetail(detail)
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 7, weight: .bold))
+                    .frame(width: 12, height: 12)
+                    .background(Circle().fill(Color.white.opacity(hoveringClose == detail ? 0.18 : 0)))
+            }
+            .buttonStyle(.plain)
+            .pointerCursor()
+            .onHover { hoveringClose = $0 ? detail : (hoveringClose == detail ? nil : hoveringClose) }
+            .opacity(isActive || hovering == detail ? 1 : 0.35)
+            .help("Close \(detail.title)")
+        }
+        .foregroundStyle(isActive ? tint : theme.secondaryText)
+        .padding(.leading, 7).padding(.trailing, 4)
+        .frame(height: 22)
+        .background(
+            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                .fill(isActive ? tint.opacity(0.18) : Color.white.opacity(0.04))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        .strokeBorder(style: StrokeStyle(lineWidth: 1, dash: [3, 2]))
+                        .foregroundStyle(isActive ? tint.opacity(0.4) : theme.panelStroke.opacity(0.7))
+                )
+        )
+        .contentShape(Rectangle())
+        .pointerCursor()
+        .onHover { hovering = $0 ? detail : (hovering == detail ? nil : hovering) }
+        .onTapGesture { controller.openTab(.detail(detail)) }
+        .contextMenu {
+            Button("Close") { controller.closeDetail(detail) }
+            Button("Close all details") { controller.closeAllDetails() }
+        }
+        .transition(.scale(scale: 0.85).combined(with: .opacity))
     }
 
     /// Built-ins in the user's order, then custom tabs. One flat list so the
@@ -164,6 +231,12 @@ struct TabDockView: View {
             let moving = tabs.remove(at: fromIndex)
             tabs.insert(moving, at: 0)
             withAnimation(Motion.tabSwitch) { settings.data.customTabs = tabs }
+
+        case (.detail, _), (_, .detail):
+            // Details are ephemeral and ordered by when they were opened.
+            // Dragging one would imply an arrangement worth keeping, and there
+            // is nothing to keep it in.
+            break
         }
     }
 
@@ -202,6 +275,11 @@ struct TabDockView: View {
             return (config.symbol.isEmpty ? config.kind.symbol : config.symbol,
                     config.title,
                     themes.theme.tint(.custom))
+        case .detail(let detail):
+            // Not reachable from `items`, which only yields built-ins and custom
+            // tabs -- details render through `detailButton`. Handled so the
+            // switch stays exhaustive if that ever changes.
+            return (detail.symbol, detail.title, themes.theme.tint(detail.tint))
         }
     }
 
@@ -209,6 +287,7 @@ struct TabDockView: View {
         switch item {
         case .builtin(let id):  return "builtin:" + id.rawValue
         case .custom(let uuid): return "custom:" + uuid.uuidString
+        case .detail(let detail): return "detail:" + detail.rawValue
         }
     }
 }

@@ -8,8 +8,8 @@ import AppKit
 struct RevenueWidget: View {
     @EnvironmentObject private var themes: ThemeManager
     @EnvironmentObject private var settings: Settings
+    @EnvironmentObject private var controller: NotchPanelController
     @StateObject private var client = StripeClient()
-    var onOpenDetail: () -> Void
 
     var body: some View {
         let theme = themes.theme
@@ -70,11 +70,15 @@ struct RevenueWidget: View {
             }
         }
         .contentShape(Rectangle())
-        .onTapGesture {
-            if case .ready = client.state { onOpenDetail() }
-        }
+        .pointerCursor(isReady)
+        .onTapGesture { if isReady { controller.openDetail(.revenue) } }
         .onAppear { client.activate() }
         .onDisappear { client.deactivate() }
+    }
+
+    private var isReady: Bool {
+        if case .ready = client.state { return true }
+        return false
     }
 }
 
@@ -226,8 +230,8 @@ struct VisitorsWidget: View {
 
 struct ClaudeUsageWidget: View {
     @EnvironmentObject private var themes: ThemeManager
+    @EnvironmentObject private var controller: NotchPanelController
     @StateObject private var reader = ClaudeUsageReader()
-    var onOpenDetail: () -> Void
 
     var body: some View {
         let theme = themes.theme
@@ -267,11 +271,15 @@ struct ClaudeUsageWidget: View {
             }
         }
         .contentShape(Rectangle())
-        .onTapGesture {
-            if case .ready = reader.state { onOpenDetail() }
-        }
+        .pointerCursor(isReady)
+        .onTapGesture { if isReady { controller.openDetail(.claudeUsage) } }
         .onAppear { reader.activate() }
         .onDisappear { reader.deactivate() }
+    }
+
+    private var isReady: Bool {
+        if case .ready = reader.state { return true }
+        return false
     }
 
     private func streakBadge(_ days: Int, _ theme: Theme) -> some View {
@@ -607,7 +615,7 @@ struct DailyWordWidget: View {
     @EnvironmentObject private var themes: ThemeManager
     @ObservedObject private var service = DailyWordService.shared
     @EnvironmentObject private var settings: Settings
-    var onOpenDetail: () -> Void
+    @EnvironmentObject private var controller: NotchPanelController
 
     var body: some View {
         let theme = themes.theme
@@ -653,7 +661,8 @@ struct DailyWordWidget: View {
             }
         }
         .contentShape(Rectangle())
-        .onTapGesture { if !words.isEmpty { onOpenDetail() } }
+        .pointerCursor(!words.isEmpty)
+        .onTapGesture { if !words.isEmpty { controller.openDetail(.dailyWord) } }
         .onAppear { service.activate() }
         .onDisappear { service.deactivate() }
     }
