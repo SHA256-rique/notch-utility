@@ -275,11 +275,21 @@ struct TabsSettings: View {
     @State private var newPath = ""
     @State private var newTag = ""
 
+    /// Enabled tabs in their dock order, then the hidden ones. Listing them in
+    /// `TabID.allCases` order would contradict the dock the user just arranged.
+    private var orderedTabs: [TabID] {
+        let enabled = settings.data.enabledTabs.compactMap(TabID.init(rawValue:))
+        return enabled + TabID.allCases.filter { !enabled.contains($0) }
+    }
+
     var body: some View {
         let theme = themes.theme
-        NBSectionHeader(title: "Built-in tabs", trailing: "drag order isn't supported yet — toggle to hide")
+        NBSectionHeader(title: "Built-in tabs", trailing: "drag them in the dock to reorder")
+        Text("These are the tabs the dock can show. To change their order, drag the icons in the dock itself — the order you see there is the order that is stored.")
+            .font(.system(size: 9)).foregroundStyle(theme.secondaryText)
+            .fixedSize(horizontal: false, vertical: true)
         FlowRow(spacing: 5) {
-            ForEach(TabID.allCases) { id in
+            ForEach(orderedTabs) { id in
                 let enabled = settings.data.enabledTabs.contains(id.rawValue)
                 Button {
                     if enabled {

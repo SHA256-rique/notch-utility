@@ -45,7 +45,7 @@ struct ExpandedPanelView: View {
 
     private func header(_ theme: Theme) -> some View {
         HStack(spacing: 6) {
-            TabBarView()
+            TabDockView()
             Spacer(minLength: 4)
 
             // Persistent claims stay reachable while a tab is open -- the brief
@@ -131,59 +131,5 @@ struct ExpandedPanelView: View {
         case .message:  MessageTabView()
         case .settings: SettingsTabView()
         }
-    }
-}
-
-/// Horizontally scrolling icon strip. Built-ins first, then user-configured
-/// custom tabs, in the order stored in settings.
-struct TabBarView: View {
-    @EnvironmentObject private var controller: NotchPanelController
-    @EnvironmentObject private var themes: ThemeManager
-    @EnvironmentObject private var settings: Settings
-
-    var body: some View {
-        let theme = themes.theme
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 3) {
-                ForEach(orderedBuiltins, id: \.self) { id in
-                    tabButton(symbol: id.symbol,
-                              title: id.title,
-                              tint: theme.tint(id.tint),
-                              isActive: controller.activeTab == .builtin(id)) {
-                        controller.openTab(.builtin(id))
-                    }
-                }
-                ForEach(settings.data.customTabs) { config in
-                    tabButton(symbol: config.symbol.isEmpty ? config.kind.symbol : config.symbol,
-                              title: config.title,
-                              tint: theme.tint(.custom),
-                              isActive: controller.activeTab == .custom(config.id)) {
-                        controller.openTab(.custom(config.id))
-                    }
-                }
-            }
-        }
-    }
-
-    private var orderedBuiltins: [TabID] {
-        settings.data.enabledTabs.compactMap(TabID.init(rawValue:))
-    }
-
-    private func tabButton(symbol: String, title: String, tint: Color,
-                           isActive: Bool, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Image(systemName: symbol)
-                .font(.system(size: 11, weight: .medium))
-                .frame(width: 26, height: 22)
-                .foregroundStyle(isActive ? tint : themes.theme.secondaryText)
-                .background(
-                    RoundedRectangle(cornerRadius: 7, style: .continuous)
-                        .fill(isActive ? tint.opacity(0.18) : .clear)
-                )
-                .themeGlow(tint, radius: isActive ? themes.theme.glowRadius(5) : 0)
-        }
-        .buttonStyle(.plain)
-        .help(title)
-        .animation(Motion.tabSwitch, value: isActive)
     }
 }

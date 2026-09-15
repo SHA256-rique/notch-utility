@@ -219,6 +219,9 @@ struct SettingsData: Codable {
     // MARK: Tabs
 
     var enabledTabs: [String] = TabID.defaultOrder
+    /// Same idea as `homeGridVersion`: lets a tab that ships later appear in an
+    /// existing dock without resetting an order the user arranged by hand.
+    var tabDockVersion: Int = 0
     var customTabs: [CustomTabConfig] = []
 
     // MARK: Home grid
@@ -301,6 +304,7 @@ final class Settings: ObservableObject {
             loaded.globalHotKeyModifiers = HotKeyCenter.defaultModifiers
         }
         Self.migrateHomeGrid(&loaded)
+        Self.migrateTabDock(&loaded)
         self.data = loaded
         ThemeManager.shared.apply(loaded.theme)
     }
@@ -329,5 +333,28 @@ final class Settings: ObservableObject {
             }
         }
         data.homeGridVersion = currentVersion
+    }
+
+    /// Adds built-in tabs that shipped after this dock was last written, and
+    /// repairs two things that would otherwise leave the user stuck: an
+    /// `enabledTabs` list containing ids no longer in `TabID`, and a dock
+    /// missing Settings, which is the only route back to fixing any of it.
+    private static func migrateTabDock(_ data: inout SettingsData) {
+        data.enabledTabs = data.enabledTabs.filter { TabID(rawValue: $0) != nil }
+
+        let currentVersion = 1
+        if data.tabDockVersion < currentVersion {
+            if !data.enabledTabs.isEmpty {
+                for id in TabID.defaultOrder where !data.enabledTabs.contains(id) {
+                    data.enabledTabs.append(id)
+                }
+            }
+            data.tabDockVersion = currentVersion
+        }
+
+        if data.enabledTabs.isEmpty { data.enabledTabs = TabID.defaultOrder }
+        if !data.enabledTabs.contains(TabID.settings.rawValue) {
+            data.enabledTabs.append(TabID.settings.rawValue)
+        }
     }
 }
