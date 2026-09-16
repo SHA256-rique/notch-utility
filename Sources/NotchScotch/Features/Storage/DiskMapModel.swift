@@ -20,6 +20,41 @@ final class DiskMapModel: ObservableObject {
     @Published private(set) var categories: [CleanupCategory] = []
     @Published private(set) var categorySizes: [String: UInt64] = [:]
     @Published private(set) var lastScanned: Date?
+    /// True when macOS refused to list the folder we are looking at.
+    @Published private(set) var directoryUnreadable = false
+    /// Biggest individual files under the current folder, found on demand.
+    @Published private(set) var largestFiles: [DiskEntry] = []
+    @Published private(set) var isFindingLargest = false
+
+    private var largestTask: Task<Void, Never>?
+
+    /// Places worth one click. Everything here is somewhere people actually
+    /// lose space, and three of them are TCC-protected -- which is exactly why
+    /// they need to be reachable without typing a path.
+    struct Shortcut: Identifiable, Hashable {
+        var id: String { url.path }
+        let name: String
+        let symbol: String
+        let url: URL
+    }
+
+    static func shortcuts() -> [Shortcut] {
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        let candidates: [(String, String, URL)] = [
+            ("Home", "house", home),
+            ("Documents", "doc.text", home.appendingPathComponent("Documents")),
+            ("Desktop", "menubar.dock.rectangle", home.appendingPathComponent("Desktop")),
+            ("Downloads", "arrow.down.circle", home.appendingPathComponent("Downloads")),
+            ("Pictures", "photo", home.appendingPathComponent("Pictures")),
+            ("Movies", "film", home.appendingPathComponent("Movies")),
+            ("Music", "music.note", home.appendingPathComponent("Music")),
+            ("Library", "building.columns", home.appendingPathComponent("Library")),
+            ("Applications", "square.grid.2x2", URL(fileURLWithPath: "/Applications"))
+        ]
+        return candidates
+            .filter { FileManager.default.fileExists(atPath: $0.2.path) }
+            .map { Shortcut(name: $0.0, symbol: $0.1, url: $0.2) }
+    }
 
     /// Results are cached per directory for the life of the app.
     ///
@@ -159,7 +194,9 @@ final class DiskMapModel: ObservableObject {
         }
 
         entries = []
+        largestFiles = []
         isScanning = true
+        directoryUnreadable = false
 
         scanTask = Task(priority: .utility) { [weak self] in
             guard let self else { return }
@@ -171,8 +208,10 @@ final class DiskMapModel: ObservableObject {
                     self.entries = partial
                 }
             }
+            let readable = await scanner.isReadable(target)
             guard !Task.isCancelled else { return }
             await MainActor.run {
+                self.directoryUnreadable = !readable && found.isEmpty
                 let modified = (try? target.resourceValues(forKeys: [.contentModificationDateKey]))?
                     .contentModificationDate
                 Self.scanCache[target.path] = CachedScan(entries: found,
@@ -246,6 +285,57 @@ final class DiskMapModel: ObservableObject {
             }
         }
     }
+
+    // MARK: - Largest files
+
+    /// The single most useful question a disk tool answers: not "which folder is
+    /// big" -- you usually know -- but "which *file* is big", which is almost
+    /// never where you would look.
+    ///
+    /// Deliberately on demand rather than automatic. It is a full recursive walk
+    /// with no early exit, which is the expensive thing this tab otherwise goes
+    /// out of its way to avoid doing on open.
+    func findLargestFiles(limit: Int = 30) {
+        largestTask?.cancel()
+        isFindingLargest = true
+        let target = directory
+
+        largestTask = Task.detached(priority: .utility) { [weak self] in
+            let found = DiskScanner.largestFiles(under: target, limit: limit)
+            guard !Task.isCancelled, let model = self else { return }
+            await MainActor.run {
+                guard model.directory == target else { return }
+                model.largestFiles = found
+                model.isFindingLargest = false
+            }
+        }
+    }
+
+    func clearLargestFiles() {
+        largestTask?.cancel()
+        largestTask = nil
+        largestFiles = []
+        isFindingLargest = false
+    }
+
+    /// Opens System Settings at the pane that grants folder access.
+    ///
+    /// Renaming the app changed its bundle identifier, and TCC keys grants to
+    /// the identifier -- so every folder permission the previous name had was
+    /// dropped on the floor. There is no API to re-request them silently;
+    /// pointing at the right settings pane is the whole of what an app can do.
+    func openPrivacySettings() {
+        NSWorkspace.shared.open(URL(string:
+            "x-apple.systempreferences:com.apple.preference.security?Privacy_FilesAndFolders")!)
+    }
+
+    func openFullDiskAccessSettings() {
+        NSWorkspace.shared.open(URL(string:
+            "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles")!)
+    }
+
+    /// Folders in the current listing that macOS would not let us read.
+    var unreadableEntries: [DiskEntry] { entries.filter(\.isUnreadable) }
 
     // MARK: - Treemap input
 

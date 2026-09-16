@@ -17,9 +17,15 @@ import QuickLookThumbnailing
 /// offering Move to Bin instead means it only has to be useful.
 struct DiskMapTabView: View {
     enum Mode: String, CaseIterable, Identifiable {
-        case list = "List", map = "Map"
+        case list = "List", map = "Map", largest = "Largest"
         var id: String { rawValue }
-        var symbol: String { self == .list ? "list.bullet" : "square.grid.3x3.fill" }
+        var symbol: String {
+            switch self {
+            case .list:    return "list.bullet"
+            case .map:     return "square.grid.3x3.fill"
+            case .largest: return "arrow.up.right.square"
+            }
+        }
     }
 
     @EnvironmentObject private var themes: ThemeManager
@@ -37,10 +43,15 @@ struct DiskMapTabView: View {
             VStack(spacing: 0) {
                 breadcrumbs(theme)
                 Divider().overlay(theme.panelStroke)
+                if model.directoryUnreadable {
+                    permissionBanner(theme, folder: model.directory.lastPathComponent)
+                }
+
                 Group {
                     switch mode {
-                    case .list: entryList(theme)
-                    case .map:  treemap(theme)
+                    case .list:    entryList(theme)
+                    case .map:     treemap(theme)
+                    case .largest: largestFiles(theme)
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -89,6 +100,21 @@ struct DiskMapTabView: View {
                                 }
                             }
                         }
+                    }
+                }
+
+                NBSectionHeader(title: "Go to")
+                FlowRow(spacing: 4) {
+                    ForEach(DiskMapModel.shortcuts()) { shortcut in
+                        Button {
+                            model.open(shortcut.url)
+                        } label: {
+                            Label(shortcut.name, systemImage: shortcut.symbol)
+                                .font(.system(size: 9, weight: .medium))
+                        }
+                        .buttonStyle(NBButtonStyle(
+                            tint: theme.tint(.files),
+                            filled: model.directory == shortcut.url, compact: true))
                     }
                 }
 
@@ -239,7 +265,10 @@ struct DiskMapTabView: View {
             Picker("", selection: $mode) {
                 ForEach(Mode.allCases) { Image(systemName: $0.symbol).tag($0) }
             }
-            .pickerStyle(.segmented).labelsHidden().frame(width: 72)
+            .pickerStyle(.segmented).labelsHidden().frame(width: 108)
+            .onChange(of: mode) { _, new in
+                if new == .largest && model.largestFiles.isEmpty { model.findLargestFiles() }
+            }
 
             Button {
                 model.rescan()
@@ -277,10 +306,18 @@ struct DiskMapTabView: View {
                             .frame(height: 4)
                         }
 
-                        Text(StorageService.format(entry.bytes))
-                            .font(.system(size: 10, weight: .medium)).monospacedDigit()
-                            .foregroundStyle(theme.secondaryText)
-                            .frame(width: 66, alignment: .trailing)
+                        if entry.isUnreadable {
+                            Label("no access", systemImage: "lock.fill")
+                                .font(.system(size: 9, weight: .medium))
+                                .foregroundStyle(.orange)
+                                .frame(width: 66, alignment: .trailing)
+                                .help("macOS blocks this folder until you grant permission in Privacy & Security")
+                        } else {
+                            Text(StorageService.format(entry.bytes))
+                                .font(.system(size: 10, weight: .medium)).monospacedDigit()
+                                .foregroundStyle(theme.secondaryText)
+                                .frame(width: 66, alignment: .trailing)
+                        }
 
                         if entry.isDrillable {
                             Image(systemName: "chevron.right")
@@ -309,6 +346,106 @@ struct DiskMapTabView: View {
                              subtitle: "This folder is empty, or its contents are not readable.")
             }
         }
+    }
+
+    // MARK: - Permissions
+
+    /// Shown instead of a silent empty folder.
+    ///
+    /// The rename changed the bundle identifier, and TCC keys folder grants to
+    /// the identifier -- so every permission the old name held was dropped.
+    /// There is no API to re-request them quietly; an app can open the right
+    /// settings pane and explain, and that is all.
+    private func permissionBanner(_ theme: Theme, folder: String) -> some View {
+        HStack(spacing: 9) {
+            Image(systemName: "lock.fill")
+                .font(.system(size: 13)).foregroundStyle(.orange)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("macOS will not let NotchScotch read \(folder)")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(theme.primaryText)
+                Text("Documents, Desktop and Downloads need explicit permission. Grant it and reopen this folder — nothing here is empty, we just cannot see it.")
+                    .font(.system(size: 9)).foregroundStyle(theme.secondaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 4)
+            Button("Files & Folders") { model.openPrivacySettings() }
+                .buttonStyle(NBButtonStyle(tint: .orange, filled: true, compact: true))
+            Button("Full Disk Access") { model.openFullDiskAccessSettings() }
+                .buttonStyle(NBButtonStyle(tint: theme.secondaryText, compact: true))
+                .help("Grants everything at once, including ~/Library — the folder most disk space actually hides in")
+        }
+        .padding(9)
+        .background(Color.orange.opacity(0.12))
+        .overlay(alignment: .bottom) {
+            Rectangle().fill(theme.panelStroke).frame(height: 0.5)
+        }
+    }
+
+    // MARK: - Largest files
+
+    /// The question a disk tool is actually for: not which folder is big -- you
+    /// usually know -- but which *file* is, which is almost never where you
+    /// would look.
+    private func largestFiles(_ theme: Theme) -> some View {
+        Group {
+            if model.isFindingLargest && model.largestFiles.isEmpty {
+                VStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text("Walking \(model.directory.lastPathComponent)…")
+                        .font(.system(size: 10)).foregroundStyle(theme.secondaryText)
+                    Text("This one is a full recursive scan, so it is the slow one.")
+                        .font(.system(size: 9)).foregroundStyle(theme.secondaryText.opacity(0.8))
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if model.largestFiles.isEmpty {
+                NBEmptyState(symbol: "arrow.up.right.square",
+                             title: "Nothing found",
+                             subtitle: "No readable files under this folder.")
+            } else {
+                ScrollView {
+                    LazyVStack(spacing: 2) {
+                        ForEach(Array(model.largestFiles.enumerated()), id: \.element.id) { index, entry in
+                            largestRow(index: index, entry: entry, theme: theme)
+                        }
+                    }
+                    .padding(.horizontal, 8).padding(.vertical, 6)
+                }
+            }
+        }
+    }
+
+    private func largestRow(index: Int, entry: DiskEntry, theme: Theme) -> some View {
+        let isSelected = model.selected?.id == entry.id
+        return HStack(spacing: 8) {
+            Text("\(index + 1)")
+                .font(.system(size: 9, weight: .semibold)).monospacedDigit()
+                .foregroundStyle(theme.secondaryText)
+                .frame(width: 18, alignment: .trailing)
+            Image(nsImage: NSWorkspace.shared.icon(forFile: entry.url.path))
+                .resizable().frame(width: 16, height: 16)
+            VStack(alignment: .leading, spacing: 0) {
+                Text(entry.name)
+                    .font(.system(size: 11, weight: isSelected ? .semibold : .regular))
+                    .foregroundStyle(theme.primaryText).lineLimit(1)
+                Text(entry.url.deletingLastPathComponent().path)
+                    .font(.system(size: 8, design: .monospaced))
+                    .foregroundStyle(theme.secondaryText)
+                    .lineLimit(1).truncationMode(.head)
+            }
+            Spacer(minLength: 4)
+            Text(StorageService.format(entry.bytes))
+                .font(.system(size: 10, weight: .medium)).monospacedDigit()
+                .foregroundStyle(theme.secondaryText)
+        }
+        .padding(.horizontal, 8).padding(.vertical, 5)
+        .background(RoundedRectangle(cornerRadius: 6)
+            .fill(isSelected ? theme.tint(.files).opacity(0.16) : .clear))
+        .contentShape(Rectangle())
+        .pointerCursor()
+        .onTapGesture { model.select(entry) }
+        .onTapGesture(count: 2) { NSWorkspace.shared.activateFileViewerSelecting([entry.url]) }
+        .contextMenu { contextMenu(for: entry) }
     }
 
     // MARK: - Treemap

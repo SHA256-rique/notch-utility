@@ -16,6 +16,12 @@ struct DiskEntry: Identifiable, Equatable {
     /// A bundle (.app, .photoslibrary) is a directory the user thinks of as one
     /// thing, so it is sized whole and never drilled into.
     let isBundle: Bool
+    /// The folder exists but macOS would not let us look inside it.
+    ///
+    /// Without this a TCC-protected folder reports 0 bytes and sinks to the
+    /// bottom of the list, which reads as "Documents is empty" -- a confident,
+    /// wrong answer. Far better to say we were not allowed to look.
+    var isUnreadable: Bool = false
 
     var isDrillable: Bool { isDirectory && !isBundle }
 }
@@ -58,6 +64,12 @@ actor DiskScanner {
         .totalFileAllocatedSizeKey, .fileAllocatedSizeKey, .isRegularFileKey, .isDirectoryKey
     ]
 
+    /// Whether the directory itself could be listed at all.
+    ///
+    /// Distinct from a per-entry flag: if the folder you navigated *into* is
+    /// protected, there are no entries to flag.
+    func isReadable(_ directory: URL) -> Bool { Self.canRead(directory) }
+
     /// Sizes the immediate children of `directory`, newest results first as they
     /// finish, via `onProgress`. Returns the complete set.
     ///
@@ -93,9 +105,12 @@ actor DiskScanner {
             let entry: DiskEntry
             if isDirectory && !isBundle {
                 let total = Self.total(of: child)
+                // A protected folder is indistinguishable from an empty one by
+                // size alone, so ask directly rather than inferring.
+                let unreadable = total.bytes == 0 && !Self.canRead(child)
                 entry = DiskEntry(url: child, name: child.lastPathComponent,
                                   isDirectory: true, bytes: total.bytes, items: total.items,
-                                  isBundle: false)
+                                  isBundle: false, isUnreadable: unreadable)
             } else if isDirectory && isBundle {
                 let total = Self.total(of: child)
                 entry = DiskEntry(url: child, name: child.lastPathComponent,
@@ -120,6 +135,70 @@ actor DiskScanner {
         let sorted = results.sorted { $0.bytes > $1.bytes }
         onProgress(sorted)
         return sorted
+    }
+
+    /// Whether macOS will let this process list a directory.
+    ///
+    /// TCC gates Documents, Desktop, Downloads and several others for *every*
+    /// app, sandboxed or not, and a denial surfaces as
+    /// `NSFileReadNoPermissionError` rather than as an empty directory. The
+    /// distinction matters: one means "nothing here", the other means "you were
+    /// not allowed to look", and reporting the second as the first is how a
+    /// disk tool tells someone their Documents folder is empty.
+    ///
+    /// This also *triggers* the permission prompt the first time, which is the
+    /// point -- the user sees macOS's own dialog at the moment they asked for
+    /// the folder.
+    nonisolated static func canRead(_ url: URL) -> Bool {
+        do {
+            _ = try FileManager.default.contentsOfDirectory(
+                at: url, includingPropertiesForKeys: nil, options: [])
+            return true
+        } catch let error as NSError {
+            return !(error.domain == NSCocoaErrorDomain
+                     && (error.code == NSFileReadNoPermissionError
+                         || error.code == NSFileReadUnknownError))
+        }
+    }
+
+    /// The biggest individual files under a subtree.
+    ///
+    /// Keeps only `limit` candidates in memory rather than sorting everything:
+    /// a home directory is two million files, and the answer wanted is thirty
+    /// of them. Insert-and-trim against the running minimum is O(n log k)
+    /// with a bounded footprint, where collecting-then-sorting is O(n log n)
+    /// with an unbounded one.
+    nonisolated static func largestFiles(under url: URL, limit: Int) -> [DiskEntry] {
+        let keys: Set<URLResourceKey> = [.totalFileAllocatedSizeKey, .fileAllocatedSizeKey, .isRegularFileKey]
+        guard let walker = FileManager.default.enumerator(
+            at: url,
+            includingPropertiesForKeys: Array(keys),
+            options: [.skipsPackageDescendants],
+            errorHandler: { _, _ in true }) else { return [] }
+
+        var best: [DiskEntry] = []
+        var floor: UInt64 = 0
+
+        for case let child as URL in walker {
+            if Task.isCancelled { break }
+            if skippedPaths.contains(child.path) {
+                walker.skipDescendants()
+                continue
+            }
+            guard let values = try? child.resourceValues(forKeys: keys),
+                  values.isRegularFile == true else { continue }
+            let bytes = UInt64(values.totalFileAllocatedSize ?? values.fileAllocatedSize ?? 0)
+            guard bytes > floor || best.count < limit else { continue }
+
+            best.append(DiskEntry(url: child, name: child.lastPathComponent,
+                                  isDirectory: false, bytes: bytes, items: 1, isBundle: false))
+            if best.count > limit {
+                best.sort { $0.bytes > $1.bytes }
+                best.removeLast(best.count - limit)
+                floor = best.last?.bytes ?? 0
+            }
+        }
+        return best.sorted { $0.bytes > $1.bytes }
     }
 
     /// Recursive allocated size and file count of one subtree.
