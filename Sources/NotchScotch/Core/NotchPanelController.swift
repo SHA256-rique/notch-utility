@@ -107,6 +107,45 @@ final class NotchPanelController: NSObject, ObservableObject {
         applyFrame(collapsedSize, animated: true)
     }
 
+    /// Whether the orb is currently being touched -- hovered, dragged, or
+    /// otherwise interacted with. Drives the idle fade.
+    @Published private(set) var isOrbActive = true
+    private var orbIdleWork: DispatchWorkItem?
+
+    /// An orb sits on top of the user's actual work, so it has to get out of
+    /// the way when it is not being used. Three seconds of no contact and it
+    /// drops to a faint outline; anything at all brings it back instantly.
+    ///
+    /// It fades rather than disappearing: a control that vanishes completely is
+    /// one the user has to remember the location of, which is worse than a
+    /// control that is merely quiet.
+    static let orbIdleDelay: TimeInterval = 3
+
+    func orbHoverChanged(_ inside: Bool) {
+        if inside {
+            wakeOrb()
+        } else {
+            scheduleOrbFade()
+        }
+    }
+
+    /// Called on any interaction -- hover, drag, a new claim arriving.
+    func wakeOrb() {
+        orbIdleWork?.cancel()
+        orbIdleWork = nil
+        if !isOrbActive { isOrbActive = true }
+    }
+
+    func scheduleOrbFade() {
+        orbIdleWork?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            guard let self, self.state == .collapsed else { return }
+            self.isOrbActive = false
+        }
+        orbIdleWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.orbIdleDelay, execute: work)
+    }
+
     func commitOrbPosition() {
         guard let dragged = orbDragOrigin else { return }
         orbDragOrigin = nil
@@ -124,6 +163,11 @@ final class NotchPanelController: NSObject, ObservableObject {
     /// something was copied. The extra width is generous because a toast is
     /// sized to its text and a clipped toast is worse than a wide window that
     /// is mostly transparent and click-through anyway.
+    /// The collapsed **window**, which is deliberately wider than the pill it
+    /// draws. The window is the hover target; the shape inside it is sized by
+    /// `CollapsedPillView.pillWidth`, and at rest is narrower than the cutout so
+    /// nothing is visible. Without the extra window width there would be
+    /// nowhere to hover an invisible pill.
     private var collapsedSize: CGSize {
         if presentation == .orb {
             // An orb has no shoulders to put a message on, so a transient hangs
@@ -135,9 +179,11 @@ final class NotchPanelController: NSObject, ObservableObject {
                           height: OrbView.diameter + (toasting ? 44 : 0))
         }
         let notchWidth = layout.hasPhysicalNotch ? layout.notchRect.width : 200
-        let pillHeight = max(layout.notchRect.height, 32) + (arbiter.hasUrgentContent ? 6 : 0)
+        let pillHeight = max(layout.hasPhysicalNotch ? layout.notchRect.height : 30, 28)
+            + (arbiter.hasUrgentContent ? 8 : 0)
         let toasting = arbiter.transient != nil && Settings.shared.data.transientStyle == .toast
-        return CGSize(width: notchWidth + (arbiter.hasUrgentContent ? 260 : 24)
+        // +40 at rest is hover slack around an invisible pill, not drawn width.
+        return CGSize(width: notchWidth + (arbiter.hasUrgentContent ? 260 : 40)
                              + (toasting ? 120 : 0),
                       height: pillHeight + (toasting ? 44 : 0))
     }
@@ -250,6 +296,7 @@ final class NotchPanelController: NSObject, ObservableObject {
         // Once the full UI is on screen it is just noise in the header.
         arbiter.clearTransient()
         state = .expanded
+        wakeOrb()
         applyFrame(expandedSize, animated: true)
         updateHubActivation()
     }
@@ -264,6 +311,9 @@ final class NotchPanelController: NSObject, ObservableObject {
         panel.wantsKeyboardFocus = false
         applyFrame(collapsedSize, animated: true)
         updateHubActivation()
+        // Closing the panel starts the idle clock: the orb should settle back
+        // out of the way on its own rather than waiting to be hovered again.
+        if presentation == .orb { scheduleOrbFade() }
     }
 
     func toggle() {

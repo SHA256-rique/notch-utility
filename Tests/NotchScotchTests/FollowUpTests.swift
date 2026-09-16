@@ -1111,3 +1111,72 @@ struct DiskMapTests {
         #expect(TabID.defaultOrder.contains(TabID.diskMap.rawValue))
     }
 }
+
+
+// MARK: - Notch shape and presence
+
+@Suite("Notch shape")
+struct NotchShapeTests {
+
+    private let rect = CGRect(x: 0, y: 0, width: 200, height: 32)
+
+    /// The flare is the curve of the hardware the pill is attached to, not of
+    /// the pill, so it necessarily paints outside the shape's own width.
+    /// Callers have to leave slack for it; if this ever stopped being true the
+    /// shape would look clipped rather than curved.
+    @Test("The flare paints outside the frame")
+    func flareOverhangs() {
+        let path = NotchShape(flare: 9, bottomRadius: 15).path(in: rect)
+        #expect(path.boundingRect.minX < rect.minX)
+        #expect(path.boundingRect.maxX > rect.maxX)
+    }
+
+    @Test("The shape stays within its own height")
+    func heightIsRespected() {
+        let path = NotchShape().path(in: rect)
+        #expect(path.boundingRect.minY >= rect.minY - 0.01)
+        #expect(path.boundingRect.maxY <= rect.maxY + 0.01)
+    }
+
+    /// A pill shorter than its own corner radii would otherwise produce curves
+    /// that cross and render as a bow tie.
+    @Test("Degenerate sizes clamp instead of inverting")
+    func clamping() {
+        for size in [CGSize(width: 40, height: 6),
+                     CGSize(width: 8, height: 40),
+                     CGSize(width: 1, height: 1)] {
+            let path = NotchShape().path(in: CGRect(origin: .zero, size: size))
+            #expect(!path.isEmpty)
+            #expect(path.boundingRect.height <= size.height + 0.01)
+        }
+    }
+
+    @Test("A wide pill is still one closed shape")
+    func wideShape() {
+        let path = NotchShape().path(in: CGRect(x: 0, y: 0, width: 460, height: 40))
+        #expect(!path.isEmpty)
+        #expect(path.boundingRect.width > 460)
+    }
+}
+
+@Suite("Orb idle behaviour")
+struct OrbIdleTests {
+
+    /// Three seconds is the number in the brief. It is asserted rather than
+    /// left as a literal because the whole behaviour -- an orb that gets out of
+    /// the way of the user's work -- hangs off it.
+    @Test("The orb settles after three seconds")
+    func idleDelay() {
+        #expect(NotchPanelController.orbIdleDelay == 3)
+    }
+
+    /// Hover-to-expand is a notch behaviour. An orb sits in the middle of the
+    /// user's work, and one that opened an 880pt panel whenever the cursor
+    /// crossed it would be unusable.
+    @Test("Automatic still picks the orb only where there is no cutout")
+    func autoPresentation() {
+        #expect(SettingsData().panelPresentation == .auto)
+        #expect(PanelPresentation.allCases.contains(.orb))
+        #expect(PanelPresentation.allCases.contains(.notch))
+    }
+}

@@ -14,6 +14,16 @@ import SwiftUI
 /// `onDisappear` is the only way to leak, and there is exactly one place per tab
 /// to check.
 struct ExpandedPanelView: View {
+    /// Where this panel is being rendered.
+    ///
+    /// The same view backs both the notch panel and the standalone window, so
+    /// there is one implementation of every tab. Only the chrome differs: a
+    /// window has no notch to route around, cannot be pinned (it is always
+    /// pinned), and closes through its own title bar.
+    enum Chrome { case notch, window }
+
+    var chrome: Chrome = .notch
+
     @EnvironmentObject private var controller: NotchPanelController
     @EnvironmentObject private var themes: ThemeManager
     @EnvironmentObject private var arbiter: NotchArbiter
@@ -52,8 +62,12 @@ struct ExpandedPanelView: View {
                 .themeGlow(theme.accent, radius: theme.glowRadius(14))
                 .shadow(color: .black.opacity(0.45), radius: 22, y: 8)
         )
-        .padding(.horizontal, 6)
-        .padding(.bottom, 8)
+        .padding(.horizontal, chrome == .window ? 0 : 6)
+        .padding(.bottom, chrome == .window ? 0 : 8)
+        // The window's own title bar is the drag handle and the close button,
+        // so the panel's rounded card and shadow would just be a border drawn
+        // inside a border.
+        .padding(.top, chrome == .window ? 22 : 0)
     }
 
     // MARK: - Header
@@ -95,27 +109,52 @@ struct ExpandedPanelView: View {
             Color.clear.frame(width: notchGap, height: 1)
             Spacer(minLength: 8)
 
-            Button {
-                controller.togglePin()
-            } label: {
-                Image(systemName: controller.isPinned ? "pin.fill" : "pin")
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(controller.isPinned ? theme.accent : theme.secondaryText)
-            }
-            .buttonStyle(.plain)
-            .pointerCursor()
-            .help(controller.isPinned ? "Unpin (panel will auto-collapse)" : "Pin open")
+            if chrome == .notch {
+                Button {
+                    StandaloneWindowController.shared.open(selecting: controller.activeTab)
+                    controller.collapse()
+                } label: {
+                    Image(systemName: "macwindow")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(theme.secondaryText)
+                }
+                .buttonStyle(.plain)
+                .pointerCursor()
+                .help("Open in a window — resizable, full-screenable, stays put")
 
-            Button {
-                controller.collapse()
-            } label: {
-                Image(systemName: "xmark")
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(theme.secondaryText)
+                Button {
+                    controller.togglePin()
+                } label: {
+                    Image(systemName: controller.isPinned ? "pin.fill" : "pin")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(controller.isPinned ? theme.accent : theme.secondaryText)
+                }
+                .buttonStyle(.plain)
+                .pointerCursor()
+                .help(controller.isPinned ? "Unpin (panel will auto-collapse)" : "Pin open")
+
+                Button {
+                    controller.collapse()
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(theme.secondaryText)
+                }
+                .buttonStyle(.plain)
+                .pointerCursor()
+                .help("Collapse")
+            } else {
+                Button {
+                    StandaloneWindowController.shared.toggleFullScreen()
+                } label: {
+                    Image(systemName: "arrow.up.left.and.arrow.down.right")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(theme.secondaryText)
+                }
+                .buttonStyle(.plain)
+                .pointerCursor()
+                .help("Full screen")
             }
-            .buttonStyle(.plain)
-            .pointerCursor()
-            .help("Collapse")
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 7)
@@ -125,6 +164,7 @@ struct ExpandedPanelView: View {
     /// not hanging off a physical notch, because then there is nothing to avoid
     /// and a hole in the middle of the strip would just be a hole.
     private var notchGap: CGFloat {
+        guard chrome == .notch else { return 0 }
         let layout = ScreenGeometry.current()
         guard layout.hasPhysicalNotch, controller.presentation == .notch else { return 0 }
         // A little wider than the cutout: the housing has a rounded skirt, and

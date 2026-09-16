@@ -31,6 +31,11 @@ struct OrbView: View {
     @State private var isDragging = false
     @State private var isHovering = false
 
+    /// Resting means untouched for `orbIdleDelay`. Read from the controller
+    /// rather than tracked here, because the timer has to survive this view
+    /// being rebuilt when a claim changes.
+    private var isResting: Bool { !controller.isOrbActive && !isDragging && !isHovering }
+
     static let diameter: CGFloat = 46
 
     var body: some View {
@@ -68,12 +73,21 @@ struct OrbView: View {
             }
         }
         .frame(width: Self.diameter, height: Self.diameter)
-        .scaleEffect(isDragging ? 1.12 : (isHovering ? 1.06 : 1))
+        .scaleEffect(isDragging ? 1.12 : (isHovering ? 1.06 : (isResting ? 0.88 : 1)))
+        // Faint, but never gone. A control that disappears entirely is one the
+        // user has to remember the position of; a faint one is still a target.
+        // Anything with a live claim stays legible regardless -- fading out a
+        // running timer to 18% would defeat the point of showing it.
+        .opacity(isResting && !arbiter.hasUrgentContent ? 0.18 : 1)
         .animation(Motion.pillContent, value: isDragging)
         .animation(Motion.pillContent, value: isHovering)
         .animation(Motion.pillContent, value: focus)
+        .animation(.easeInOut(duration: 0.45), value: isResting)
         .pointerCursor()
-        .onHover { isHovering = $0 }
+        .onHover { inside in
+            isHovering = inside
+            controller.orbHoverChanged(inside)
+        }
         .help(focus.map { "\($0.text)\($0.detail.map { d in " — \(d)" } ?? "")" }
               ?? "NotchScotch — drag to move, click to open")
         // Drag moves the window itself. The gesture reports a cumulative
@@ -84,6 +98,7 @@ struct OrbView: View {
             DragGesture(minimumDistance: 3, coordinateSpace: .global)
                 .onChanged { value in
                     isDragging = true
+                    controller.wakeOrb()
                     let delta = CGSize(
                         width: value.translation.width - appliedTranslation.width,
                         height: value.translation.height - appliedTranslation.height)
@@ -94,6 +109,7 @@ struct OrbView: View {
                     appliedTranslation = .zero
                     isDragging = false
                     controller.commitOrbPosition()
+                    controller.scheduleOrbFade()
                 }
         )
 
@@ -109,6 +125,15 @@ struct OrbView: View {
         .animation(arbiter.transient == nil ? Motion.toastOut : Motion.toastIn,
                    value: arbiter.transient)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        // A message arriving is contact: the orb comes back so the toast is
+        // attached to something visible, then settles again.
+        .onChange(of: arbiter.transient) { _, new in
+            if new != nil {
+                controller.wakeOrb()
+                controller.scheduleOrbFade()
+            }
+        }
+        .onAppear { controller.scheduleOrbFade() }
     }
 }
 

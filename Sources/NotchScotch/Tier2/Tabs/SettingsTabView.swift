@@ -103,6 +103,29 @@ struct GeneralSettings: View {
             }
         }
 
+        NBSectionHeader(title: "As a window")
+        NBCard(tint: .settings, padding: 9) {
+            VStack(alignment: .leading, spacing: 7) {
+                Text("The notch panel is built for a glance — it opens on hover and closes when you look away. For anything that is a task rather than a check, open the same tabs in an ordinary window: resizable, full-screenable with the green button, and it stays where you put it.")
+                    .font(.system(size: 9)).foregroundStyle(theme.secondaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+                HStack(spacing: 6) {
+                    Button("Open in a window") {
+                        StandaloneWindowController.shared.open(
+                            selecting: NotchPanelController.shared.activeTab)
+                    }
+                    .buttonStyle(NBButtonStyle(tint: theme.accent, filled: true, compact: true))
+                    Button("Full screen") {
+                        StandaloneWindowController.shared.toggleFullScreen()
+                    }
+                    .buttonStyle(NBButtonStyle(tint: theme.accent, compact: true))
+                    Spacer()
+                    Text("also in the menu bar, ⌘W")
+                        .font(.system(size: 9)).foregroundStyle(theme.secondaryText)
+                }
+            }
+        }
+
         NBSectionHeader(title: "Panel")
         toggle("Expand when I hover the notch", $settings.data.hoverToExpand, theme)
         HStack(spacing: 10) {

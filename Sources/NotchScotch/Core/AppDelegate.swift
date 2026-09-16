@@ -144,6 +144,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         open.target = self
         menu.addItem(open)
 
+        let windowItem = NSMenuItem(title: "Open in a Window",
+                                    action: #selector(openStandaloneWindow), keyEquivalent: "w")
+        windowItem.target = self
+        menu.addItem(windowItem)
+        menu.addItem(.separator())
+
         let teleprompter = NSMenuItem(title: "Teleprompter", action: #selector(toggleTeleprompter), keyEquivalent: "")
         teleprompter.target = self
         menu.addItem(teleprompter)
@@ -175,6 +181,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func openSettings() {
         NotchPanelController.shared.isPinnedForSettings()
+    }
+
+    @objc private func openStandaloneWindow() {
+        StandaloneWindowController.shared.open(selecting: NotchPanelController.shared.activeTab)
     }
 
     @objc private func toggleTeleprompter() {

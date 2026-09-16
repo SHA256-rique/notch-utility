@@ -103,10 +103,13 @@ struct CollapsedPillView: View {
                         .id(key(sweeping))
                     }
                     }
-                    .frame(width: geo.size.width, height: pillHeight)
-                    .padding(.horizontal, 10)
+                    .frame(width: pillWidth(containerWidth: geo.size.width), height: pillHeight)
                     .background(pillShape(theme: theme))
                     .clipShape(pillClip)
+                    // The flare paints outside the shape's own width by design,
+                    // so the container must not clip it.
+                    .frame(width: geo.size.width)
+                    .animation(Motion.panel, value: arbiter.hasUrgentContent)
 
                     // --- The toast, hanging below the notch rather than in it.
                     //
@@ -151,12 +154,34 @@ struct CollapsedPillView: View {
         ScreenGeometry.current().hasPhysicalNotch ? ScreenGeometry.current().notchRect.width : 120
     }
 
+    /// How wide the pill actually draws, which is **not** how wide its window is.
+    ///
+    /// The window stays generously sized so there is somewhere to hover; the
+    /// shape inside it is drawn to this width. At rest that is deliberately a
+    /// few points *narrower than the cutout*, so the pill disappears entirely
+    /// behind the hardware and the app is visually absent -- which is what the
+    /// Tier-1 rule has always said and what the old full-width black slab
+    /// quietly broke.
+    private func pillWidth(containerWidth: CGFloat) -> CGFloat {
+        let layout = ScreenGeometry.current()
+        guard layout.hasPhysicalNotch else {
+            // No cutout to hide behind, so there has to be something to see or
+            // the app has no presence at all on this display.
+            return arbiter.hasUrgentContent ? containerWidth : 118
+        }
+        guard arbiter.hasUrgentContent else { return max(40, layout.notchRect.width - 12) }
+        return containerWidth
+    }
+
     /// The pill occupies only the notch's own height; anything below it is the
     /// toast's. Without this the pill would stretch to fill the taller window
     /// the controller opens for a toast, and the "notch" would visibly grow.
+    /// Exactly the cutout's height at rest, so the shape cannot peek out below
+    /// it; a little taller when it has something to say.
     private var pillHeight: CGFloat {
-        max(ScreenGeometry.current().notchRect.height, 32)
-            + (arbiter.hasUrgentContent ? 6 : 0)
+        let layout = ScreenGeometry.current()
+        let base = layout.hasPhysicalNotch ? layout.notchRect.height : 30
+        return max(base, 28) + (arbiter.hasUrgentContent ? 8 : 0)
     }
 
     private func key(_ claim: PillClaim) -> String {
@@ -244,19 +269,32 @@ struct CollapsedPillView: View {
 
     // MARK: - Shape
 
-    private var pillClip: UnevenRoundedRectangle {
-        UnevenRoundedRectangle(
-            topLeadingRadius: 0, bottomLeadingRadius: 14,
-            bottomTrailingRadius: 14, topTrailingRadius: 0, style: .continuous)
-    }
+    private var pillClip: NotchShape { NotchShape() }
 
-    /// The bottom corners are rounded and the top ones are square, so the pill
-    /// reads as hanging *from* the notch rather than floating under it. On a
-    /// notchless display it still works as a menu-bar-adjacent tab.
+    /// The pill's surface.
+    ///
+    /// Three things changed here after seeing it on a real notched MacBook.
+    ///
+    /// **Smooth corners.** The old shape had square top corners, which drew two
+    /// hard 90° angles against the top of the screen. The hardware cutout has
+    /// no such corner -- it flares outward into the menu bar -- so the drawn
+    /// chrome read as a black rectangle taped under the machine. `NotchShape`
+    /// matches the flare.
+    ///
+    /// **Not pitch black.** `Color.black` is darker than the notch it sits
+    /// beside on any display that is not perfectly calibrated, so the pill
+    /// announced itself as a separate object. The theme's panel background is
+    /// very dark but not absolute, which reads as the same piece of glass.
+    ///
+    /// **Nothing at all when idle.** See `pillWidth`: at rest the shape is
+    /// narrower than the cutout, so there is literally nothing to see.
     private func pillShape(theme: Theme) -> some View {
         pillClip
-            .fill(Color.black)
-            .overlay(pillClip.stroke(theme.panelStroke, lineWidth: theme.kind == .neon ? 1 : 0.5))
+            .fill(arbiter.hasUrgentContent ? theme.panelBackground : Color.black.opacity(0.98))
+            .overlay(
+                pillClip.stroke(theme.panelStroke.opacity(arbiter.hasUrgentContent ? 1 : 0),
+                                lineWidth: theme.kind == .neon ? 1 : 0.5)
+            )
             // Only glow when the pill has content; a resting pill must be invisible.
             .themeGlow(theme.accent, radius: arbiter.hasUrgentContent ? theme.glowRadius(8) : 0)
     }
