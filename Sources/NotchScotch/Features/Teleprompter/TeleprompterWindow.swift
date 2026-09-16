@@ -93,6 +93,13 @@ final class TeleprompterController: ObservableObject {
         applyCaptureHiding()
         window?.orderFrontRegardless()
         isOpen = true
+
+        // Get out of the way. The prompter is a performance surface -- you open
+        // it because you are about to talk to a camera -- and leaving the notch
+        // panel sitting over it means the first thing on screen is a settings
+        // panel you now have to dismiss. Everything the prompter needs while
+        // running lives in the prompter window itself.
+        NotchPanelController.shared.collapse()
     }
 
     func close() {

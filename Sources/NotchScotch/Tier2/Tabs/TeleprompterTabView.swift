@@ -91,45 +91,31 @@ struct TeleprompterTabView: View {
                         Button {
                             controller.isOpen ? controller.close() : controller.open()
                         } label: {
-                            Label(controller.isOpen ? "Close window" : "Open window",
-                                  systemImage: controller.isOpen ? "xmark.rectangle" : "rectangle.on.rectangle")
+                            Label(controller.isOpen ? "Close prompter" : "Start prompting",
+                                  systemImage: controller.isOpen ? "xmark.rectangle" : "play.rectangle.fill")
                                 .font(.system(size: 11, weight: .medium))
                                 .frame(maxWidth: .infinity, alignment: .leading)
                         }
                         .buttonStyle(NBButtonStyle(tint: theme.tint(.message), filled: !controller.isOpen))
+                        .disabled(!controller.isOpen && controller.script.isEmpty)
 
-                        HStack(spacing: 5) {
-                            Button {
-                                controller.isRunning ? controller.stop() : controller.start()
-                            } label: {
-                                Label(controller.isRunning ? "Pause" : "Play",
-                                      systemImage: controller.isRunning ? "pause.fill" : "play.fill")
-                                    .font(.system(size: 11, weight: .medium))
-                            }
-                            .buttonStyle(NBButtonStyle(tint: theme.tint(.message),
-                                                       filled: !controller.isRunning, compact: true))
-                            .disabled(!controller.isOpen || controller.script.isEmpty)
+                        // No play/pause here on purpose. You open the prompter
+                        // because you are about to talk to a camera, and this
+                        // panel closes as it opens -- a transport control on a
+                        // surface that is not on screen while you are using the
+                        // thing it controls is a control you can never reach.
+                        // Play, pause and back-to-top live in the prompter
+                        // window, on hover.
+                        Text(controller.isOpen
+                             ? "Play, pause and back-to-top are in the prompter window — move the pointer over it."
+                             : "Opens the prompter and closes this panel. The words, and the controls for them, are in that window.")
+                            .font(.system(size: 9)).foregroundStyle(theme.secondaryText)
+                            .fixedSize(horizontal: false, vertical: true)
 
-                            Button {
-                                controller.reset()
-                            } label: {
-                                Label("Top", systemImage: "arrow.counterclockwise")
-                                    .font(.system(size: 11, weight: .medium))
-                            }
-                            .buttonStyle(NBButtonStyle(tint: theme.secondaryText, compact: true))
-                            .disabled(!controller.isOpen)
-                        }
-
-                        if controller.countdown > 0 {
-                            Text("Starting in \(controller.countdown)…")
-                                .font(.system(size: 11, weight: .semibold))
-                                .foregroundStyle(theme.tint(.message))
-                        }
-
-                        if !controller.isOpen {
-                            Text("Open the window first — it is the thing that shows the words.")
-                                .font(.system(size: 9)).foregroundStyle(theme.secondaryText)
-                                .fixedSize(horizontal: false, vertical: true)
+                        if controller.script.isEmpty {
+                            Label("Write or paste a script first.", systemImage: "text.cursor")
+                                .font(.system(size: 10, weight: .medium))
+                                .foregroundStyle(.orange)
                         }
                     }
                 }
@@ -192,7 +178,7 @@ struct TeleprompterTabView: View {
                     }
                 }
 
-                Text("The prompter window is borderless, always on top, and draggable by its background. It stays open when you close this panel.")
+                Text("The prompter window is borderless, always on top, and draggable by its background. It stays open while you work in other apps.")
                     .font(.system(size: 9)).foregroundStyle(theme.secondaryText)
                     .fixedSize(horizontal: false, vertical: true)
             }
