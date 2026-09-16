@@ -388,10 +388,19 @@ that is the behaviour that makes notch apps annoying.
 **Tier 1 (collapsed):** battery · Now Playing · running timers · agent-approval
 badge · optional compact system stats
 
+At rest the pill is drawn **narrower than the cutout**, so it is entirely behind
+the hardware and there is nothing to see — the Tier-1 rule is "render nothing
+when there is nothing to say", and a permanently visible black slab was quietly
+breaking it. Its outline flares outward at the top to match the cutout's own
+curve rather than meeting the menu bar at a hard corner
+([ADR 0029](docs/decisions/0029-pill-shape-and-presence.md)).
+
 On a display with no notch the collapsed app is a **draggable orb** rather than
 a black tab pretending there is a cutout. Automatic by default, overridable
 either way, position remembered per display
-([ADR 0024](docs/decisions/0024-orb-for-notchless-displays.md)).
+([ADR 0024](docs/decisions/0024-orb-for-notchless-displays.md)). It opens on a
+click rather than on hover, and fades to a faint outline after three seconds
+untouched — it sits in the middle of your work, so it gets out of the way.
 
 **Tier 2 (tabs):** Home (customisable widget grid) · Time (multiple named
 timers, alarms with weekday repeats, Pomodoro, stopwatch, water) · Snippets
@@ -412,6 +421,13 @@ of the screen now lays out *around* the cutout
 panel auto-collapses when the pointer leaves it, so resizing on a tab switch
 moved the panel's edges out from under the cursor and could shut the app in the
 same gesture that opened a tab.
+
+**Or open it as a window.** The panel is built for a glance and closes when you
+look away, which is wrong for a task — a 40-row disk map, a four-way terminal
+split, a teleprompter script. The same tabs run in an ordinary window that
+resizes, full-screens with the green button, and stays put. From the panel
+header, the menu bar (⌘W) or Settings
+([ADR 0028](docs/decisions/0028-window-mode.md)).
 
 The **word rail** runs down the right of every tab — today's word, next and
 previous, and a personal glossary of everything the app has shown you. It
@@ -500,7 +516,8 @@ If you are new to this repo, start with
 
 ```
 Sources/NotchScotch/
-  Core/         panel, geometry, polling hub, arbiter, settings, theme, motion
+  Core/         panel, window, geometry, notch shape, polling hub, arbiter,
+                settings, theme, motion
   Tier1/        battery, now playing, system stats, collapsed pill, orb
   Tier2/        expanded panel, tab dock, word rail, Tabs/*
   Features/
@@ -516,7 +533,7 @@ Sources/NotchScotch/
                 Claude usage, word packs, storage, metrics
     Files/ Message/ Teleprompter/ Calendar/
   Support/      logging, JSON store, Keychain
-Tests/          147 tests (swift-testing)
+Tests/          153 tests (swift-testing)
 Scripts/        build-app.sh · test.sh · bench-idle.sh · install-hook.sh
 ```
 
@@ -548,6 +565,12 @@ dock moved to the bottom, the header gained a measured gap, and long
 confirmations now route below the notch instead of under it. That pass also
 brought the orb, terminal panes, the calendar split, and the Disk Map tab, and
 removed the Docker tab — a once-a-week glance was holding a permanent dock slot.
+
+A fifth pass came from looking at it on the hardware: the pill had square
+corners against the top of the screen, rendered blacker than the cutout beside
+it, and was visible at rest — three things that together made it read as a
+rectangle taped under the machine rather than part of it. That pass also added
+window mode and made the orb click-to-open and self-fading.
 
 A fourth pass came from using it. Per-tab sizing was reverted for closing the
 app mid-gesture. Flash messages take themselves down, because a full-width

@@ -70,6 +70,15 @@ window whose content is already in memory.
                   ┌───────────────────────┐
                   │     NotchArbiter      │  decides what the pill shows
                   └───────────────────────┘
+
+   Collapsed surface is one of two, per display (PanelPresentation):
+     · pill — drawn narrower than the cutout at rest, so it is invisible;
+              the window stays wider than the pill, to have something to hover
+     · orb  — click to open, draggable, fades after 3s untouched
+
+   Tier 2 renders into one of two windows, sharing ONE view tree:
+     · the notch panel  (NSPanel, non-activating, top-pinned, auto-collapsing)
+     · a standalone window (titled, resizable, full-screenable, persistent)
                               │
 ┌─────────────────────────────────────────────────────────────┐
 │ TIER 2 — expanded panel                                     │

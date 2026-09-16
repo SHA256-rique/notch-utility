@@ -38,3 +38,5 @@ file's header instead.
 | [0025](0025-disk-scan-one-level-at-a-time.md) | Scan one level at a time, and never delete | Accepted |
 | [0026](0026-fixed-terminal-layouts.md) | Fixed pane layouts, not a pane tree | Accepted |
 | [0027](0027-one-panel-size.md) | One panel size for every tab | Accepted |
+| [0028](0028-window-mode.md) | A window mode, as a second window | Accepted |
+| [0029](0029-pill-shape-and-presence.md) | The pill is notch-shaped, and absent when idle | Accepted |
