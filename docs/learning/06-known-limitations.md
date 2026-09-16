@@ -178,3 +178,45 @@ open dist/NotchBuddy.app --args --bench-tab terminal
 - `Scripts/build-app.sh` does not verify that the Info.plist and the built
   binary agree on the bundle identifier; a mismatch would break TCC persistence
   confusingly.
+
+## The camera housing is not ours to draw in
+
+macOS reserves the notch rectangle. No application can render into it, and
+nothing in the API surface lets one try — `NSScreen.safeAreaInsets` exists to
+tell you where the boundary is, not to let you cross it.
+
+This is worth stating as a limitation because it is invisible when it bites.
+Content placed behind the housing is not dimmed, clipped or warned about. It is
+simply absent, and the user has no way to know it was ever there. Three places
+in this codebase route around it, all measured from `ScreenGeometry` rather than
+guessed: the tab dock (bottom, not top), the expanded header (a reserved gap in
+the middle), and transient messages (a shoulder if they fit, the toast row below
+the notch if they do not).
+
+If you add anything that draws near the top of the screen, `shoulderWidth` is
+the function you want.
+
+## What "open in a real terminal" cannot carry
+
+The working directory transfers exactly and the scrollback goes to the
+clipboard, but **the running process does not transfer and cannot**. A process
+is attached to its controlling terminal; moving it would mean reparenting it
+onto a pty owned by another application. There is no API for that and there
+should not be.
+
+The scrollback is deliberately not replayed into the new window either. Both
+Terminal and iTerm2 expose AppleScript `do script`, which *executes* what it is
+given — replaying a build log through it is remote code execution triggered by
+whatever happened to be in the output.
+
+## Disk Map does not scan the whole Mac
+
+By design, not omission. See
+[ADR 0025](../decisions/0025-disk-scan-one-level-at-a-time.md): a whole-disk
+tree is hundreds of megabytes of resident memory, which is the exact cost this
+app exists to avoid. The quick-win categories cover the directories that
+actually account for reclaimable space.
+
+Bundles are also opaque — a 4GB `.app` is sized whole and cannot be drilled
+into. That is correct behaviour (it is one thing to the person looking at it)
+but it does mean the tab cannot tell you which resource inside an app is large.

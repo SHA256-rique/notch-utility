@@ -76,8 +76,9 @@ window whose content is already in memory.
 │ instantiate on open · TEAR DOWN on close                    │
 │                                                             │
 │   Home · Time · Snippets · Notes · Calendar · Files ·       │
-│   API · Docker · Terminal · AI Chat · Message · Settings    │
+│   Disk Map · API · Terminal · AI Chat · Message · Settings  │
 │   + user-configured custom tabs                             │
+│   + on-demand detail tabs (open from a tile, close to exit) │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -290,7 +291,7 @@ blocking or CPU-bound:
 |---|---|---|
 | JSON encode + file write | utility `DispatchQueue` | disk IO |
 | Image conversion | utility `DispatchQueue`, **sequential** | CPU-bound; parallel batches spike memory into GB |
-| Docker socket IO | `userInitiated` queue via continuation | blocking `read`/`write` on AF_UNIX |
+| Disk scanning | `DiskScanner` actor + detached utility tasks | walks millions of inodes; cancellable per navigation |
 | pty reads | `userInitiated` `DispatchSourceRead` | continuous stream; hops to main to feed the emulator |
 | Approval socket accept/handle | dedicated serial queue | a hung client must not block the accept loop |
 

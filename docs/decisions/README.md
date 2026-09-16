@@ -33,3 +33,7 @@ file's header instead.
 | [0020](0020-google-oauth-loopback-over-eventkit-only.md) | Direct Google OAuth, not EventKit alone | Accepted |
 | [0021](0021-embedded-word-packs.md) | Embedded word packs, derived word of the day | Accepted |
 | [0022](0022-detail-tabs-over-permanent-ones.md) | Detail tabs over permanent ones | Accepted |
+| [0023](0023-lay-out-around-the-notch.md) | Lay out around the camera housing, never under it | Accepted |
+| [0024](0024-orb-for-notchless-displays.md) | An orb on displays without a notch | Accepted |
+| [0025](0025-disk-scan-one-level-at-a-time.md) | Scan one level at a time, and never delete | Accepted |
+| [0026](0026-fixed-terminal-layouts.md) | Fixed pane layouts, not a pane tree | Accepted |

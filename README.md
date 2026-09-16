@@ -266,18 +266,26 @@ runtime, GCD queues and CoreFoundation is genuinely unsafe — only
 async-signal-safe calls are legal between fork and exec, and the Swift runtime
 is not one.
 
-### Docker → the daemon socket, not the `docker` CLI
+### Disk sizing → `totalFileAllocatedSize`, one directory at a time
 
-Two reasons beyond the usual. A GUI app does not inherit the shell's
-environment, so a Docker Desktop install that works perfectly in Terminal is
-invisible to an app that spawns `/usr/bin/env docker` — this sidesteps an entire
-class of "works in my terminal" bug report. And `docker ps` output is formatted
-for humans and its columns shift, while the Engine API returns documented,
-versioned JSON.
+Allocated size, not logical size: `fileSize` is the length of the contents,
+while `totalFileAllocatedSize` is what the file actually occupies including
+block slack. For a folder of a thousand small files the difference is
+substantial, and "how much space will I get back" is the only question the Disk
+Map tab exists to answer.
 
-`URLSession` cannot open an `AF_UNIX` socket, so this is ~100 lines of
-`connect`/`write`/`read` plus a chunked-transfer decoder — smaller and more
-auditable than the dependency would have been.
+The scan sizes one directory's immediate children rather than building a tree of
+the whole disk. A home directory is two million files; a node each is hundreds
+of megabytes held open for the life of the tab. See
+[ADR 0025](docs/decisions/0025-disk-scan-one-level-at-a-time.md).
+
+### Shell cwd → `proc_pidinfo`, not the prompt
+
+"Open in Terminal" needs the working directory of the pane you are in. Parsing
+it out of the prompt fails because the prompt is user-configurable; a shell hook
+would mean editing someone's zshrc for a feature they may never use.
+`proc_pidinfo(PROC_PIDVNODEPATHINFO)` asks the kernel what the process's cwd
+actually is — exact, and free.
 
 ### Secrets → Keychain, `AfterFirstUnlockThisDeviceOnly`
 
@@ -380,21 +388,40 @@ that is the behaviour that makes notch apps annoying.
 **Tier 1 (collapsed):** battery · Now Playing · running timers · agent-approval
 badge · optional compact system stats
 
+On a display with no notch the collapsed app is a **draggable orb** rather than
+a black tab pretending there is a cutout. Automatic by default, overridable
+either way, position remembered per display
+([ADR 0024](docs/decisions/0024-orb-for-notchless-displays.md)).
+
 **Tier 2 (tabs):** Home (customisable widget grid) · Time (multiple named
 timers, alarms with weekday repeats, Pomodoro, stopwatch, water) · Snippets
 (clipboard history + saved snippets + pinned, one store, with a task board
-beside it) · Notes · Calendar (agenda + month grid, Apple and Google) · Files
-(format converter with size presets and a batch queue) · API Tester · Docker ·
-Terminal · AI Chat · Message (flash-across-the-notch) · Settings
+beside it) · Notes · Calendar (agenda and month side by side, Apple and Google)
+· Files (format converter with size presets and a batch queue) · Disk Map
+(where the space went, and Move to Bin) · API Tester · Terminal (up to four
+tmux-style panes) · AI Chat · Message (flash-across-the-notch) · Settings
 
-Each tab opens at the size it needs rather than a single fixed one — the
-terminal is the widest, because columns change what you can actually run.
+The **tab dock runs along the bottom**, centred and magnified on hover. It used
+to be at the top, where the camera housing hid the middle of it — macOS reserves
+that rectangle and no app can draw into it, so everything that touches the top
+of the screen now lays out *around* the cutout
+([ADR 0023](docs/decisions/0023-lay-out-around-the-notch.md)).
+
+Each tab opens at the size it needs rather than a single fixed one — Disk Map is
+the widest because it carries three panels, then the terminal, because columns
+change what you can actually run.
 
 **Detail tabs** open from a tile and close like an editor's: Screen Time
 (7-day chart with daily average, per-app breakdown) · Revenue · Claude usage ·
 Word of the Day · Storage (free space, per-volume breakdown, empty the Bin).
 They appear in the dock with a close button and are not persisted across
 launches.
+
+**Disk Map** is the bigger version of that: a sidebar with the disk gauge and
+reclaimable categories, a browser showing the current folder's children biggest
+first as a list or a squarified treemap, and an inspector. Nothing in it
+deletes — everything goes to the Bin
+([ADR 0025](docs/decisions/0025-disk-scan-one-level-at-a-time.md)).
 
 **Home widgets:** System rings (CPU/RAM/Disk/Battery) · Sound & Light · Screen
 Time · Revenue (Stripe-backed, tap for detail) · Claude usage (tokens, streak,
@@ -432,7 +459,9 @@ drop-and-fade) applied to every transient pop-in
   endpoint you pointed it at instead.
 - Visitors: a request to **your own** analytics endpoint, if you configured one.
 - Calendar: requests to Google's Calendar API, if you linked a Google account —
-  read-only, scoped to calendars alone.
+  read-only, scoped to calendars alone. Setup needs a **Desktop app** OAuth
+  client of your own; there is no redirect URL to paste anywhere, because the
+  flow catches the reply on a loopback port it opens for one request.
 - Anything you explicitly send from the API Tester or a custom-metric tab.
 - **Nothing else.** No analytics, no crash reporting, no update pings, no
   account. Claude usage is read from local files; the word of the day is
@@ -462,21 +491,22 @@ If you are new to this repo, start with
 ```
 Sources/NotchBuddy/
   Core/         panel, geometry, polling hub, arbiter, settings, theme, motion
-  Tier1/        battery, now playing, system stats, collapsed pill
+  Tier1/        battery, now playing, system stats, collapsed pill, orb
   Tier2/        expanded panel, tab registry, Tabs/*
   Features/
     Approval/   the waiting-on-approval primitive + three transports
-    Terminal/   pty, VT100 emulator, session, renderer
+    Terminal/   pty, VT100 emulator, session, panes, renderer
     Time/       timers, alarms, pomodoro, stopwatch
     Snippets/   unified store + clipboard watcher + task board
     Calendar/   EventKit and Google sources, OAuth loopback flow
+    Storage/    disk scanner, squarified treemap, cleanup categories
     LLM/        shared streaming client
     Selection/  AX-driven selection assist
     Widgets/    screen time, weather, sound & light, Stripe, visitors,
                 Claude usage, word packs, storage, metrics
-    Docker/ Files/ Message/ Teleprompter/
+    Files/ Message/ Teleprompter/
   Support/      logging, JSON store, Keychain
-Tests/          129 tests (swift-testing)
+Tests/          160 tests (swift-testing)
 Scripts/        build-app.sh · test.sh · bench-idle.sh · install-hook.sh
 ```
 
@@ -499,6 +529,15 @@ missing, storage and the Bin, a second notification style, per-tab panel
 sizing, and the detail-tab model
 ([ADR 0022](docs/decisions/0022-detail-tabs-over-permanent-ones.md)) that keeps
 occasional views off the dock.
+
+A third pass was driven by screenshots of the app running on a real notched
+MacBook, and most of it came down to one platform fact: macOS reserves the
+camera-housing rectangle, so content placed there is not dimmed or clipped —
+it is not on the screen at all, with nothing to tell the user it exists. The
+dock moved to the bottom, the header gained a measured gap, and long
+confirmations now route below the notch instead of under it. That pass also
+brought the orb, terminal panes, the calendar split, and the Disk Map tab, and
+removed the Docker tab — a once-a-week glance was holding a permanent dock slot.
 
 Known limitations are documented rather than hidden:
 [docs/learning/06-known-limitations.md](docs/learning/06-known-limitations.md).
