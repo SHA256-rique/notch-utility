@@ -33,7 +33,7 @@ relationships, no partial fetches, no concurrent writers. SQL would be answering
 a question nobody asked.
 
 **The files are readable.** A user can `cat ~/Library/Application
-Support/NotchBuddy/settings.json` and see exactly what the app stores. For an
+Support/NotchScotch/settings.json` and see exactly what the app stores. For an
 app that reads your clipboard and holds API keys, that transparency is worth
 something — and Settings → About links straight to the folder.
 

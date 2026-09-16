@@ -1,4 +1,4 @@
-# NotchBuddy
+# NotchScotch
 
 A native macOS utility that turns the MacBook notch into a Dynamic-Island-style
 surface: a collapsed pill that shows only genuinely urgent glance info, and an
@@ -59,11 +59,11 @@ actually discriminates, and it was stable at 0.9–1.0 across both runs.
 Requires macOS 14+. Xcode is **not** required — Command Line Tools are enough.
 
 ```sh
-git clone https://github.com/shams03/notchbuddy.git
-cd notchbuddy
+git clone https://github.com/shams03/notchscotch.git
+cd notchscotch
 
-./Scripts/build-app.sh release     # builds dist/NotchBuddy.app
-open dist/NotchBuddy.app
+./Scripts/build-app.sh release     # builds dist/NotchScotch.app
+open dist/NotchScotch.app
 
 ./Scripts/test.sh                  # 55 tests
 ./Scripts/bench-idle.sh 10 3       # idle benchmark (app must be running)
@@ -75,7 +75,7 @@ Hover the notch to expand, or press **⌘⌥Space**.
 To watch what it is doing:
 
 ```sh
-log stream --predicate 'subsystem == "com.notchbuddy.app"' --level debug
+log stream --predicate 'subsystem == "com.notchscotch.app"' --level debug
 ```
 
 ---
@@ -102,7 +102,7 @@ No widget in this app is permitted to own a `Timer`.
 
 The naive structure — ten widgets, ten timers — produces ten independent
 scheduler wakeups. Widgets instead register `(interval, closure)` with
-[`WidgetPollingHub`](Sources/NotchBuddy/Core/WidgetPollingHub.swift), which runs
+[`WidgetPollingHub`](Sources/NotchScotch/Core/WidgetPollingHub.swift), which runs
 **one** `DispatchSourceTimer` at the greatest common divisor of every registered
 interval and dispatches each registration when its own period elapses. Ten
 widgets at 1s/2s/5s produce one wakeup per second, not ten. The timer carries
@@ -113,7 +113,7 @@ to perform.
 and continuing to tick. When the panel is collapsed and unpinned, the process
 has no scheduled widget work at all. There is exactly one caller of that method
 in the entire codebase —
-[`NotchPanelController.updateHubActivation()`](Sources/NotchBuddy/Core/NotchPanelController.swift)
+[`NotchPanelController.updateHubActivation()`](Sources/NotchScotch/Core/NotchPanelController.swift)
 — which makes the power behaviour auditable rather than emergent.
 
 Settings → Power shows the live registration list, so a user chasing battery
@@ -134,7 +134,7 @@ place per tab to check, and the framework fires it for you.
 
 Defined in one place so "what is the notch showing right now" is never a
 side-effect of whichever subsystem updated last
-([`NotchArbiter`](Sources/NotchBuddy/Core/NotchArbiter.swift)):
+([`NotchArbiter`](Sources/NotchScotch/Core/NotchArbiter.swift)):
 
 - **Persistent** claims (a running timer, a blocked CLI) *hold* the pill until
   they resolve.
@@ -319,7 +319,7 @@ Three transports, in the priority order the brief specifies:
 claude ──PreToolUse──▶ nb-approve ──┐
                                      │ JSON over a unix socket
                                      ▼
-                        ~/.notchbuddy/approval.sock
+                        ~/.notchscotch/approval.sock
                                      │
                           badge appears in the notch
                                      │
@@ -341,7 +341,7 @@ difference matters a great deal.
 The bridge script is **generated, not shipped as an opaque binary**, so the
 socket path is always right for your user and so you can read the whole thing —
 it is 20 lines of `sh` — before wiring it into a tool that runs commands on your
-machine. If NotchBuddy is not running it exits 0 immediately (measured: 31ms),
+machine. If NotchScotch is not running it exits 0 immediately (measured: 31ms),
 so your agent never hangs because a UI app was closed.
 
 We print the `settings.json` snippet with a copy button rather than editing
@@ -354,7 +354,7 @@ your back is exactly what you should not accept from a utility app.
 
 ### 2. Owned pty — preferred over log watching
 
-When you run the agent inside NotchBuddy's own Terminal tab, we are on both
+When you run the agent inside NotchScotch's own Terminal tab, we are on both
 ends: we see the byte stream with no screen scraping and no Accessibility
 permission, and the response is a `write()` into the pty the process is already
 reading from — no synthetic keystrokes, no focus stealing, works even when the
@@ -372,7 +372,7 @@ session to (`claude 2>&1 | tee ~/agent.log`), using
 `DispatchSourceFileSystemObject` rather than a `stat` loop, reading only newly
 appended bytes.
 
-[`ApprovalPatterns.swift`](Sources/NotchBuddy/Features/Approval/ApprovalPatterns.swift)
+[`ApprovalPatterns.swift`](Sources/NotchScotch/Features/Approval/ApprovalPatterns.swift)
 is isolated, logic-free, and carries a prominent warning: matching a CLI's
 prompt by looking at its output is inherently unstable, because wording and
 box-drawing are presentation details that authors change freely. Updating it
@@ -489,7 +489,7 @@ If you are new to this repo, start with
 ## Project layout
 
 ```
-Sources/NotchBuddy/
+Sources/NotchScotch/
   Core/         panel, geometry, polling hub, arbiter, settings, theme, motion
   Tier1/        battery, now playing, system stats, collapsed pill, orb
   Tier2/        expanded panel, tab registry, Tabs/*

@@ -8,7 +8,7 @@ We will add a hypothetical **Git** tab that shows the status of a repository.
 
 ## 1. Declare the identity
 
-`Sources/NotchBuddy/Tier2/TabRegistry.swift`:
+`Sources/NotchScotch/Tier2/TabRegistry.swift`:
 
 ```swift
 enum TabID: String, Codable, CaseIterable, Identifiable, Hashable {
@@ -42,7 +42,7 @@ Add a `ModuleTint` case if the tab deserves its own colour; otherwise reuse one.
 
 ## 2. Register it in the panel
 
-`Sources/NotchBuddy/Tier2/ExpandedPanelView.swift`:
+`Sources/NotchScotch/Tier2/ExpandedPanelView.swift`:
 
 ```swift
 @ViewBuilder
@@ -62,7 +62,7 @@ The tab bar itself needs no change — it iterates
 so the new tab will **not** appear for them until they enable it in
 Settings → Tabs. That is correct behaviour (we do not silently rearrange
 someone's UI), but it will confuse you during testing. Delete
-`~/Library/Application Support/NotchBuddy/settings.json` to see it.
+`~/Library/Application Support/NotchScotch/settings.json` to see it.
 
 ---
 
@@ -174,7 +174,7 @@ on every refresh without causing SwiftUI churn.
 ```sh
 ./Scripts/test.sh
 ./Scripts/build-app.sh release
-open dist/NotchBuddy.app --args --bench-tab git
+open dist/NotchScotch.app --args --bench-tab git
 ./Scripts/bench-idle.sh 10 2          # cost while open
 # collapse the panel, then:
 ./Scripts/bench-idle.sh 10 2          # MUST return to ~0.9 wakeups/s, ~13.6MB

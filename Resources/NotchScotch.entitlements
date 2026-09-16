@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- NotchScotch is NOT sandboxed, and that is a deliberate, documented choice:
+	     a sandboxed app cannot use the Accessibility API on other apps, cannot
+	     talk to /var/run/docker.sock, and cannot spawn a login shell on a pty.
+	     Those are three of the headline features. See
+	     docs/decisions/0012-unsandboxed-with-hardened-runtime.md -->
+	<key>com.apple.security.app-sandbox</key>
+	<false/>
+	<key>com.apple.security.automation.apple-events</key>
+	<true/>
+</dict>
+</plist>

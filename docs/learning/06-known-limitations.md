@@ -35,7 +35,7 @@ brightness.
 
 `kAXSelectedTextChangedNotification` is not implemented by every application.
 Where it is missing, `AXObserverAddNotification` fails and the affordance never
-appears in that app. This is normal and not a bug in NotchBuddy.
+appears in that app. This is normal and not a bug in NotchScotch.
 
 Electron apps and some Java apps are the usual gaps.
 
@@ -157,7 +157,7 @@ the published benchmark table.
 Manual version, worth running before any release:
 
 ```sh
-open dist/NotchBuddy.app --args --bench-tab terminal
+open dist/NotchScotch.app --args --bench-tab terminal
 ./Scripts/bench-idle.sh 10 2      # expanded
 # collapse the panel, then:
 ./Scripts/bench-idle.sh 10 2      # must return to ~0.9/s and ~13.6MB

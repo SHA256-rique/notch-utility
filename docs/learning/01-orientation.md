@@ -20,8 +20,8 @@ answer is almost always "because the easy version costs something at idle". See
 You need macOS 14+ and Command Line Tools. **Not Xcode.**
 
 ```sh
-./Scripts/build-app.sh release   # -> dist/NotchBuddy.app
-open dist/NotchBuddy.app
+./Scripts/build-app.sh release   # -> dist/NotchScotch.app
+open dist/NotchScotch.app
 
 ./Scripts/test.sh                # 55 tests
 ./Scripts/bench-idle.sh 10 3     # idle benchmark; app must be running
@@ -42,7 +42,7 @@ with TCC permissions needs the bundle and the ad-hoc signature. Use
 There is no `print` anywhere. Everything goes through `os.Logger`:
 
 ```sh
-log stream --predicate 'subsystem == "com.notchbuddy.app"' --level debug
+log stream --predicate 'subsystem == "com.notchscotch.app"' --level debug
 ```
 
 Categories: `panel`, `pollinghub`, `tier1`, `tabs`, `approval`, `terminal`,
@@ -51,7 +51,7 @@ Categories: `panel`, `pollinghub`, `tier1`, `tabs`, `approval`, `terminal`,
 ### Driving it without the UI
 
 ```sh
-open dist/NotchBuddy.app --args --bench-tab terminal
+open dist/NotchScotch.app --args --bench-tab terminal
 ```
 
 Opens and pins a tab at launch. Added for reproducible benchmarking, useful
@@ -60,7 +60,7 @@ whenever you need a specific tab open from a script.
 ## Where things live
 
 ```
-Sources/NotchBuddy/
+Sources/NotchScotch/
   Core/        window, geometry, the polling hub, the arbiter, settings, theme
   Tier1/       always-on monitors + the collapsed pill
   Tier2/       the expanded panel + one file per tab

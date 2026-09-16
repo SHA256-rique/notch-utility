@@ -166,7 +166,7 @@ running that should not be.
 ## How to catch a leak
 
 ```sh
-open dist/NotchBuddy.app --args --bench-tab yourtab
+open dist/NotchScotch.app --args --bench-tab yourtab
 ./Scripts/bench-idle.sh 10 2          # expanded cost
 # now collapse the panel (Esc, or click the x), then:
 ./Scripts/bench-idle.sh 10 2          # must return to ~0.9 wakeups/s, ~13.6MB

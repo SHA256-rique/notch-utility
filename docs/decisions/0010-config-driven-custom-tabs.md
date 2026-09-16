@@ -19,7 +19,7 @@ The brief called for this explicitly, and it was right.
 ## Why
 
 **A plugin runtime is a security surface, and this process is a bad place for
-one.** NotchBuddy reads the clipboard, holds LLM API keys in the Keychain, talks
+one.** NotchScotch reads the clipboard, holds LLM API keys in the Keychain, talks
 to the Docker socket, spawns a login shell, and answers "may this agent run this
 command". Loading third-party code into *that* process — even sandboxed —
 changes the app's threat model completely. The honest answer to "what else runs

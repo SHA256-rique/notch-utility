@@ -30,7 +30,7 @@ sandbox, so their tools do not work. A terminal that cannot run the user's
 tooling is not a terminal, and without it the owned-pty approval path disappears
 too.
 
-The approval hook socket in `~/.notchbuddy/` would also be inside a container
+The approval hook socket in `~/.notchscotch/` would also be inside a container
 rather than at a path another process can reach.
 
 ## What we do instead

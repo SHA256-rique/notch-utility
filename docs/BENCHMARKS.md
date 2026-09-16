@@ -28,12 +28,12 @@ Reproduce:
 
 ```sh
 ./Scripts/build-app.sh release
-open dist/NotchBuddy.app
+open dist/NotchScotch.app
 ./Scripts/bench-idle.sh 10 3
 
 # expanded states, reproducibly:
-pkill -x NotchBuddy
-open dist/NotchBuddy.app --args --bench-tab home       # or: terminal
+pkill -x NotchScotch
+open dist/NotchScotch.app --args --bench-tab home       # or: terminal
 ./Scripts/bench-idle.sh 10 3
 ```
 
@@ -92,7 +92,7 @@ it is the honest figure: **13.6 MB collapsed**.
 
 RSS (39.7 MB) is also reported, for transparency, but it counts shared framework
 pages — AppKit, SwiftUI, Foundation — that are mapped by every Cocoa app on the
-system and would be resident whether or not NotchBuddy were running. Quoting RSS
+system and would be resident whether or not NotchScotch were running. Quoting RSS
 would understate the app; quoting only footprint without mentioning RSS would be
 selective. Both are in the table.
 

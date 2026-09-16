@@ -3,16 +3,16 @@
 # Convenience: prints (does not apply) the Claude Code hook configuration that
 # wires the approval bridge into ~/.claude/settings.json.
 #
-# This deliberately does not edit the file for you. NotchBuddy writing into
+# This deliberately does not edit the file for you. NotchScotch writing into
 # another tool's config behind your back is exactly the kind of thing you should
 # not accept from a utility app -- and it would be clobbered the moment you
 # hand-edit that file yourself.
 set -euo pipefail
 
-SCRIPT_PATH="$HOME/.notchbuddy/nb-approve"
+SCRIPT_PATH="$HOME/.notchscotch/nb-approve"
 
 if [ ! -x "$SCRIPT_PATH" ]; then
-  echo "The bridge script isn't there yet. Launch NotchBuddy once -- it writes"
+  echo "The bridge script isn't there yet. Launch NotchScotch once -- it writes"
   echo "$SCRIPT_PATH on startup -- then run this again."
   exit 1
 fi

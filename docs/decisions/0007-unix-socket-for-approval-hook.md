@@ -14,7 +14,7 @@ denies it. This is a security-relevant channel, not a convenience one.
 
 ## Decision
 
-A unix domain socket at `~/.notchbuddy/approval.sock`, created `0600` inside a
+A unix domain socket at `~/.notchscotch/approval.sock`, created `0600` inside a
 `0700` directory.
 
 ## Why
@@ -74,7 +74,7 @@ startup with this user's socket path baked in. A user can `cat` the whole thing
 — it is 20 lines of `sh` — before wiring it into a tool that runs commands on
 their machine. Shipping an opaque binary for this would be exactly backwards.
 
-**It fails open.** No socket means NotchBuddy is not running, and the script
+**It fails open.** No socket means NotchScotch is not running, and the script
 exits 0 immediately (measured: 31ms) so the agent falls back to its normal
 prompting. An approval bridge that hangs your agent when the UI app is closed
 would be worse than no bridge.

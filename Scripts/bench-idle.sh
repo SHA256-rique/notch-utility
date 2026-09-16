@@ -47,11 +47,11 @@ set -euo pipefail
 
 WINDOW="${1:-10}"
 RUNS="${2:-3}"
-PROC="NotchBuddy"
+PROC="NotchScotch"
 
 PID=$(pgrep -x "$PROC" | head -1 || true)
 if [ -z "$PID" ]; then
-  echo "NotchBuddy is not running. Start it first:  open dist/NotchBuddy.app" >&2
+  echo "NotchScotch is not running. Start it first:  open dist/NotchScotch.app" >&2
   exit 1
 fi
 
@@ -98,7 +98,7 @@ def sysctl(key):
     return subprocess.run(["sysctl", "-n", key], capture_output=True,
                           text=True).stdout.strip()
 
-print("NotchBuddy idle benchmark")
+print("NotchScotch idle benchmark")
 print(f"  pid            {pid}")
 print(f"  window         {window:g}s x {runs}")
 print(f"  machine        {sysctl('machdep.cpu.brand_string')} ({sysctl('hw.ncpu')} cores)")

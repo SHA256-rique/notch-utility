@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Assembles NotchBuddy.app from the SwiftPM build product.
+# Assembles NotchScotch.app from the SwiftPM build product.
 #
 # Why this script exists: the build machine has Command Line Tools, not Xcode,
 # so `xcodebuild` is unavailable and SwiftPM produces a bare executable. A bare
@@ -13,7 +13,7 @@ set -euo pipefail
 
 CONFIG="${1:-release}"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-APP="$ROOT/dist/NotchBuddy.app"
+APP="$ROOT/dist/NotchScotch.app"
 
 cd "$ROOT"
 
@@ -23,7 +23,7 @@ echo "==> Building ($CONFIG)"
 swift build -c "$CONFIG" --arch arm64 --arch x86_64 2>/dev/null \
   || { echo "    universal build unavailable, falling back to host arch"; swift build -c "$CONFIG"; }
 
-BIN="$(swift build -c "$CONFIG" --show-bin-path 2>/dev/null | tail -1)/NotchBuddy"
+BIN="$(swift build -c "$CONFIG" --show-bin-path 2>/dev/null | tail -1)/NotchScotch"
 if [ ! -f "$BIN" ]; then
   echo "!! binary not found at $BIN" >&2
   exit 1
@@ -32,7 +32,7 @@ fi
 echo "==> Assembling bundle"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
-cp "$BIN" "$APP/Contents/MacOS/NotchBuddy"
+cp "$BIN" "$APP/Contents/MacOS/NotchScotch"
 cp "$ROOT/Resources/Info.plist" "$APP/Contents/Info.plist"
 printf 'APPL????' > "$APP/Contents/PkgInfo"
 
@@ -44,7 +44,7 @@ echo "==> Signing (ad-hoc)"
 # grant. It does NOT satisfy Gatekeeper for distribution -- that needs a Developer
 # ID and notarisation.
 codesign --force --deep \
-  --entitlements "$ROOT/Resources/NotchBuddy.entitlements" \
+  --entitlements "$ROOT/Resources/NotchScotch.entitlements" \
   --sign - "$APP" 2>&1 | sed 's/^/    /'
 
 echo "==> Verifying"
@@ -54,4 +54,4 @@ SIZE=$(du -sh "$APP" | cut -f1)
 echo ""
 echo "    Built: $APP  ($SIZE)"
 echo "    Run:   open $APP"
-echo "    Logs:  log stream --predicate 'subsystem == \"com.notchbuddy.app\"' --level debug"
+echo "    Logs:  log stream --predicate 'subsystem == \"com.notchscotch.app\"' --level debug"

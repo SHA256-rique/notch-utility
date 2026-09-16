@@ -1,6 +1,6 @@
 # Architecture
 
-This document explains how NotchBuddy is put together and, more importantly,
+This document explains how NotchScotch is put together and, more importantly,
 *why* the seams fall where they do. If you are about to add a feature, read
 [the lifecycle contract](#the-lifecycle-contract) first — it is the rule that
 most new code gets wrong.
@@ -26,7 +26,7 @@ teardown discipline, the `dlopen` of MediaRemote.
 One process. No helper apps, no XPC services, no login-item helper.
 
 ```
-NotchBuddy (LSUIElement, .accessory activation policy)
+NotchScotch (LSUIElement, .accessory activation policy)
 │
 ├── NotchPanel            the notch surface — created once, never recreated
 ├── NSStatusItem          menu-bar fallback: open, teleprompter, settings, quit
@@ -41,7 +41,7 @@ NotchBuddy (LSUIElement, .accessory activation policy)
 The panel is an `NSPanel` with `[.borderless, .nonactivatingPanel]` at
 `.statusBar` level, `[.canJoinAllSpaces, .stationary, .fullScreenAuxiliary]`.
 Each of those is load-bearing and the reasoning is in
-[`NotchPanel.swift`](../Sources/NotchBuddy/Core/NotchPanel.swift).
+[`NotchPanel.swift`](../Sources/NotchScotch/Core/NotchPanel.swift).
 
 The panel is **resized and repositioned, never destroyed and recreated**.
 Recreating it on every hover would mean a window-server round trip, a fresh
@@ -94,7 +94,7 @@ collapsed because they are free.
 
 ## 4. The polling hub
 
-[`WidgetPollingHub`](../Sources/NotchBuddy/Core/WidgetPollingHub.swift)
+[`WidgetPollingHub`](../Sources/NotchScotch/Core/WidgetPollingHub.swift)
 
 **No widget in this app is permitted to own a `Timer`.** This is the single
 most important invariant in the codebase.
@@ -165,7 +165,7 @@ pattern:
 ```
 
 This works — and is hard to get wrong — because
-[`ExpandedPanelView`](../Sources/NotchBuddy/Tier2/ExpandedPanelView.swift)
+[`ExpandedPanelView`](../Sources/NotchScotch/Tier2/ExpandedPanelView.swift)
 builds **only the selected tab**:
 
 ```swift
@@ -202,7 +202,7 @@ consumers and only unregisters when the last one leaves.
 
 ## 6. Notch arbitration
 
-[`NotchArbiter`](../Sources/NotchBuddy/Core/NotchArbiter.swift)
+[`NotchArbiter`](../Sources/NotchScotch/Core/NotchArbiter.swift)
 
 Subsystems do not write to the pill. They submit **claims**, keyed by id so a
 monitor can re-assert idempotently on every event without diffing anything
@@ -248,12 +248,12 @@ becoming a SwiftUI invalidation storm.
                        │   │ NotchArbiter│─────▶│ collapsed    │
                        │   └─────────────┘      │ pill         │
                        ▼                        └──────────────┘
-    ~/Library/Application Support/NotchBuddy/*.json
+    ~/Library/Application Support/NotchScotch/*.json
 ```
 
 ### Persistence
 
-[`JSONStore<T>`](../Sources/NotchBuddy/Support/JSONStore.swift) — a debounced,
+[`JSONStore<T>`](../Sources/NotchScotch/Support/JSONStore.swift) — a debounced,
 atomic, off-main-thread JSON file per domain.
 
 Not SQLite, not Core Data. The largest collection in this app is clipboard

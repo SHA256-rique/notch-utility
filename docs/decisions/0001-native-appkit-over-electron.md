@@ -23,7 +23,7 @@ Electron, no Tauri, no embedded web runtime as the app shell.
 
 **The resource floor is the product.** An Electron app idles at 150–300 MB
 before it does anything, because that is what a Chromium content process plus a
-Node main process costs. NotchBuddy's measured collapsed footprint is
+Node main process costs. NotchScotch's measured collapsed footprint is
 [13.6 MB](../BENCHMARKS.md). That is not a 2× difference; it is an order of
 magnitude, and it is structural — no amount of optimisation inside an Electron
 app closes it.
