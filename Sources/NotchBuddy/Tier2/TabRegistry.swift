@@ -77,7 +77,7 @@ enum TabID: String, Codable, CaseIterable, Identifiable, Hashable {
         case .time:     return CGSize(width: 620, height: 440)
         case .snippets: return CGSize(width: 800, height: 450)   // list plus the task board
         case .notes:    return CGSize(width: 600, height: 430)
-        case .calendar: return CGSize(width: 650, height: 470)   // month grid plus a day list
+        case .calendar: return CGSize(width: 800, height: 470)   // agenda and month, side by side
         case .files:    return CGSize(width: 660, height: 440)
         case .api:      return CGSize(width: 720, height: 480)   // request above, response below
         case .terminal: return CGSize(width: 820, height: 510)   // columns matter here more than anywhere

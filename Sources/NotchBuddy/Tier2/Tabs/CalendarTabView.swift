@@ -8,10 +8,26 @@ import AppKit
 /// event list, which is why `CalendarEvent` exists -- neither view knows or
 /// cares which source a row came from.
 struct CalendarTabView: View {
+    /// How much of the tab each view gets.
+    ///
+    /// Split is the default because the two answer different questions and you
+    /// usually want both: "what is next" is the glance, "what does the week
+    /// after look like" is the plan. Making them mutually exclusive meant a
+    /// click every time you wanted to check one against the other.
+    ///
+    /// The single-view modes exist for when one of them *is* the task -- picking
+    /// a date three months out wants the whole panel, and a day with nine
+    /// meetings wants the agenda to have room to breathe.
     enum Mode: String, CaseIterable, Identifiable {
-        case agenda = "Up next", month = "Month"
+        case split = "Both", agenda = "Up next", month = "Month"
         var id: String { rawValue }
-        var symbol: String { self == .agenda ? "list.bullet" : "calendar" }
+        var symbol: String {
+            switch self {
+            case .split:  return "rectangle.split.2x1"
+            case .agenda: return "list.bullet"
+            case .month:  return "calendar"
+            }
+        }
     }
 
     @EnvironmentObject private var themes: ThemeManager
@@ -19,7 +35,7 @@ struct CalendarTabView: View {
     @StateObject private var apple = AppleCalendarService()
     @StateObject private var google = GoogleCalendarService()
 
-    @State private var mode: Mode = .agenda
+    @AppStorage("calendar.mode") private var mode: Mode = .split
     @State private var visibleMonth = Calendar.current.startOfDay(for: Date())
     @State private var selectedDay: Date?
 
@@ -29,8 +45,24 @@ struct CalendarTabView: View {
             header(theme)
 
             switch mode {
-            case .agenda: agenda(theme)
-            case .month:  month(theme)
+            case .agenda:
+                agenda(theme)
+            case .month:
+                month(theme, compact: false)
+            case .split:
+                HStack(spacing: 0) {
+                    VStack(spacing: 0) {
+                        NBSectionHeader(title: "Up next")
+                            .padding(.horizontal, 12).padding(.bottom, 2)
+                        agenda(theme)
+                    }
+                    .frame(width: 262)
+
+                    Divider().overlay(theme.panelStroke)
+
+                    month(theme, compact: true)
+                        .frame(maxWidth: .infinity)
+                }
             }
         }
         .onAppear {
@@ -71,11 +103,15 @@ struct CalendarTabView: View {
         case .agenda:
             start = Date()
             end = calendar.date(byAdding: .day, value: 3, to: start) ?? start
-        case .month:
+        case .month, .split:
+            // Split shows both, so it needs the union of both windows -- which
+            // is the month window, since it already starts a week before today
+            // in any month containing today.
             let monthStart = calendar.date(from: calendar.dateComponents([.year, .month], from: visibleMonth))
                 ?? visibleMonth
-            start = calendar.date(byAdding: .day, value: -7, to: monthStart) ?? monthStart
-            end = calendar.date(byAdding: .day, value: 45, to: monthStart) ?? monthStart
+            start = min(calendar.date(byAdding: .day, value: -7, to: monthStart) ?? monthStart, Date())
+            end = max(calendar.date(byAdding: .day, value: 45, to: monthStart) ?? monthStart,
+                      calendar.date(byAdding: .day, value: 3, to: Date()) ?? Date())
         }
         apple.setWindow(start: start, end: end)
         google.setWindow(start: start, end: end)
@@ -229,12 +265,42 @@ struct CalendarTabView: View {
     // MARK: - Month
 
     @ViewBuilder
-    private func month(_ theme: Theme) -> some View {
+    private func month(_ theme: Theme, compact: Bool) -> some View {
         let calendar = Calendar.current
         let grid = Self.monthGrid(for: visibleMonth, calendar: calendar)
         let monthOf = calendar.component(.month, from: visibleMonth)
 
         VStack(spacing: 5) {
+            if compact {
+                // In split mode the month needs its own title row -- the shared
+                // header at the top carries the mode picker and cannot also
+                // carry a month name without pushing the source badges off.
+                HStack(spacing: 4) {
+                    Button { step(-1) } label: {
+                        Image(systemName: "chevron.left").font(.system(size: 8, weight: .bold))
+                    }
+                    .buttonStyle(NBButtonStyle(tint: theme.tint(.calendar), compact: true))
+                    Text(Self.monthTitle(visibleMonth))
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(theme.primaryText)
+                        .frame(maxWidth: .infinity)
+                    Button { step(1) } label: {
+                        Image(systemName: "chevron.right").font(.system(size: 8, weight: .bold))
+                    }
+                    .buttonStyle(NBButtonStyle(tint: theme.tint(.calendar), compact: true))
+                    Button {
+                        withAnimation(Motion.sheet) { mode = .month }
+                    } label: {
+                        Image(systemName: "arrow.up.left.and.arrow.down.right")
+                            .font(.system(size: 8, weight: .bold))
+                    }
+                    .buttonStyle(NBButtonStyle(tint: theme.tint(.calendar), compact: true))
+                    .help("Give the month the whole tab")
+                }
+                .padding(.horizontal, 10)
+                .padding(.top, 6)
+            }
+
             // Weekday header, rotated to the user's first weekday. Hardcoding
             // Monday or Sunday is wrong for half the world.
             HStack(spacing: 3) {
@@ -261,8 +327,8 @@ struct CalendarTabView: View {
             .padding(.horizontal, 12)
 
             if let selectedDay {
-                selectedDayList(selectedDay, theme: theme)
-            } else {
+                selectedDayList(selectedDay, theme: theme, compact: compact)
+            } else if !compact {
                 Text("Pick a day to see its events.")
                     .font(.system(size: 9)).foregroundStyle(theme.secondaryText)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
@@ -323,7 +389,7 @@ struct CalendarTabView: View {
         }
     }
 
-    private func selectedDayList(_ day: Date, theme: Theme) -> some View {
+    private func selectedDayList(_ day: Date, theme: Theme, compact: Bool = false) -> some View {
         let dayEvents = events.filter { $0.occupies(day: day) }.sorted {
             if $0.isAllDay != $1.isAllDay { return $0.isAllDay }
             return $0.start < $1.start
@@ -371,7 +437,7 @@ struct CalendarTabView: View {
                     }
                     .padding(.horizontal, 12)
                 }
-                .frame(maxHeight: 110)
+                .frame(maxHeight: compact ? 84 : 110)
             }
         }
     }

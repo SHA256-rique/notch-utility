@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 /// Settings → Widgets. Everything the Home-grid tiles need in order to be
 /// something other than an empty box: the Stripe key behind Revenue, the
@@ -320,12 +321,48 @@ struct CalendarSettingsSection: View {
                             .fixedSize(horizontal: false, vertical: true)
                     }
 
-                    Text("Create a **Desktop app** OAuth client in Google Cloud Console → APIs & Services → Credentials, and enable the Google Calendar API for that project. Sign-in uses PKCE with a loopback redirect, so the \"secret\" is not treated as one — the code exchange is protected by a verifier that never leaves this Mac.")
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("SETUP").font(.system(size: 9, weight: .semibold)).tracking(0.6)
+                            .foregroundStyle(theme.secondaryText)
+                        step(1, "In Google Cloud Console, create a project (or pick one).", theme)
+                        step(2, "APIs & Services → Library → enable **Google Calendar API**.", theme)
+                        step(3, "APIs & Services → Credentials → Create credentials → OAuth client ID.", theme)
+                        step(4, "Application type: **Desktop app**. Not Web application — a desktop client needs no redirect URL, and a web client cannot use the loopback port this flow picks at runtime.", theme)
+                        step(5, "Copy the client ID (and the secret, if shown) into the fields above.", theme)
+                        HStack(spacing: 6) {
+                            Button("Open Google Cloud Credentials") {
+                                NSWorkspace.shared.open(URL(string:
+                                    "https://console.cloud.google.com/apis/credentials")!)
+                            }
+                            .buttonStyle(NBButtonStyle(tint: theme.tint(.calendar), compact: true))
+                            Button("Enable Calendar API") {
+                                NSWorkspace.shared.open(URL(string:
+                                    "https://console.cloud.google.com/apis/library/calendar-json.googleapis.com")!)
+                            }
+                            .buttonStyle(NBButtonStyle(tint: theme.secondaryText, compact: true))
+                        }
+                        .padding(.top, 2)
+                    }
+
+                    Text("There is no URL to paste anywhere. Sign-in opens your browser and catches the reply on a loopback port this app opens for one request, protected by PKCE — so the \"secret\" is not treated as one, and the code exchange is guarded by a verifier that never leaves this Mac.")
                         .font(.system(size: 9)).foregroundStyle(theme.secondaryText)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
         }
         .onAppear { google.activate() }
+    }
+
+    private func step(_ number: Int, _ text: String, _ theme: Theme) -> some View {
+        HStack(alignment: .top, spacing: 5) {
+            Text("\(number)")
+                .font(.system(size: 8, weight: .bold)).monospacedDigit()
+                .frame(width: 13, height: 13)
+                .background(Circle().fill(theme.tint(.calendar).opacity(0.25)))
+                .foregroundStyle(theme.tint(.calendar))
+            Text(.init(text))
+                .font(.system(size: 9)).foregroundStyle(theme.secondaryText)
+                .fixedSize(horizontal: false, vertical: true)
+        }
     }
 }
