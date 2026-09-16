@@ -399,7 +399,8 @@ timers, alarms with weekday repeats, Pomodoro, stopwatch, water) · Snippets
 beside it) · Notes · Calendar (agenda and month side by side, Apple and Google)
 · Files (format converter with size presets and a batch queue) · Disk Map
 (where the space went, and Move to Bin) · API Tester · Terminal (up to four
-tmux-style panes) · AI Chat · Message (flash-across-the-notch) · Settings
+tmux-style panes) · AI Chat · Message (flash-across-the-notch, auto-dismissing)
+· Teleprompter · Settings
 
 The **tab dock runs along the bottom**, centred and magnified on hover. It used
 to be at the top, where the camera housing hid the middle of it — macOS reserves
@@ -407,9 +408,14 @@ that rectangle and no app can draw into it, so everything that touches the top
 of the screen now lays out *around* the cutout
 ([ADR 0023](docs/decisions/0023-lay-out-around-the-notch.md)).
 
-Each tab opens at the size it needs rather than a single fixed one — Disk Map is
-the widest because it carries three panels, then the terminal, because columns
-change what you can actually run.
+**Every tab opens at the same size.** Per-tab sizing was tried and reverted: the
+panel auto-collapses when the pointer leaves it, so resizing on a tab switch
+moved the panel's edges out from under the cursor and could shut the app in the
+same gesture that opened a tab.
+
+The **word rail** runs down the right of every tab — today's word, next and
+previous, and a personal glossary of everything the app has shown you. It
+collapses to a strip when a tab needs the width.
 
 **Detail tabs** open from a tile and close like an editor's: Screen Time
 (7-day chart with daily average, per-app breakdown) · Revenue · Claude usage ·
@@ -434,9 +440,13 @@ dock, which also has a **+** for adding a config-driven custom tab or bringing a
 hidden built-in back. Tapping the Disk ring opens the Storage detail; tapping
 Revenue, Claude usage, Screen Time or Word of the Day opens theirs.
 
-**Not tabs:** selection-aware Explain/Rewrite/Translate (global, Accessibility)
-· Teleprompter (separate always-on-top window, hidden from screen recording by
-default)
+**Teleprompter:** script and controls live in a tab; the words are shown in a
+separate always-on-top window that can be mirrored for a beam-splitter rig and
+is **hidden from screen recording by default** — it sits over your call and
+everyone on the other end sees what is behind it.
+
+**Not a tab:** selection-aware Explain/Rewrite/Translate, which is a global
+Accessibility listener and a floating action button.
 
 **Cross-cutting:** three themes (Minimal / Playful / Neon) · launch at login ·
 global hotkey · per-window hide-from-screen-recording · battery-saver switch
@@ -492,7 +502,7 @@ If you are new to this repo, start with
 Sources/NotchScotch/
   Core/         panel, geometry, polling hub, arbiter, settings, theme, motion
   Tier1/        battery, now playing, system stats, collapsed pill, orb
-  Tier2/        expanded panel, tab registry, Tabs/*
+  Tier2/        expanded panel, tab dock, word rail, Tabs/*
   Features/
     Approval/   the waiting-on-approval primitive + three transports
     Terminal/   pty, VT100 emulator, session, panes, renderer
@@ -504,9 +514,9 @@ Sources/NotchScotch/
     Selection/  AX-driven selection assist
     Widgets/    screen time, weather, sound & light, Stripe, visitors,
                 Claude usage, word packs, storage, metrics
-    Files/ Message/ Teleprompter/
+    Files/ Message/ Teleprompter/ Calendar/
   Support/      logging, JSON store, Keychain
-Tests/          160 tests (swift-testing)
+Tests/          147 tests (swift-testing)
 Scripts/        build-app.sh · test.sh · bench-idle.sh · install-hook.sh
 ```
 
@@ -538,6 +548,16 @@ dock moved to the bottom, the header gained a measured gap, and long
 confirmations now route below the notch instead of under it. That pass also
 brought the orb, terminal panes, the calendar split, and the Disk Map tab, and
 removed the Docker tab — a once-a-week glance was holding a permanent dock slot.
+
+A fourth pass came from using it. Per-tab sizing was reverted for closing the
+app mid-gesture. Flash messages take themselves down, because a full-width
+banner left up by accident is still there during the next screen share. The
+teleprompter was made findable — it had been fully built and reachable only
+from a status-bar menu. Word of the day became a rail with a glossary, since a
+word you go looking for is not a word a day. Disk Map stopped re-walking the
+filesystem on every open. And the app was renamed to **NotchScotch**, with
+per-file migration for Application Support and a Keychain fallback, because a
+rename that loses someone's data is a data-loss bug with a new icon.
 
 Known limitations are documented rather than hidden:
 [docs/learning/06-known-limitations.md](docs/learning/06-known-limitations.md).

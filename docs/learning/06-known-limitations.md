@@ -220,3 +220,30 @@ actually account for reclaimable space.
 Bundles are also opaque — a 4GB `.app` is sized whole and cannot be drilled
 into. That is correct behaviour (it is one thing to the person looking at it)
 but it does mean the tab cannot tell you which resource inside an app is large.
+
+## Disk Map results are cached, and say so
+
+Scanning is the most expensive thing in the app, so results are cached per
+directory and reused until either five minutes pass or the directory's own
+modification date changes. Both tests are needed: time alone serves stale
+numbers after a large download, and mtime alone never expires for a folder whose
+timestamp does not change when its children grow.
+
+The consequence is that a number can be up to five minutes old. The breadcrumb
+bar says how old, and Rescan forces a fresh walk.
+
+Quick-win category sizes cache for thirty minutes and are measured sequentially
+at background priority — eight parallel recursive walks of `~/Library` all hit
+the same physical device and make each other slower.
+
+## Renaming the app moved every store
+
+NotchBuddy became NotchScotch, which moved Application Support, the Keychain
+service name and the bundle id. Application Support migrates file by file on
+first access, adopting a file only where the new directory does not already
+have one; Keychain reads fall back to the old service and move what they find.
+
+The approval hook directory is deliberately **not** migrated: its path is
+written into the user's `~/.claude/settings.json`, and moving the script out
+from under a path another tool holds would break approvals silently. Re-run
+`Scripts/install-hook.sh` to point it at the new location.

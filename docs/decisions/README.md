@@ -37,3 +37,4 @@ file's header instead.
 | [0024](0024-orb-for-notchless-displays.md) | An orb on displays without a notch | Accepted |
 | [0025](0025-disk-scan-one-level-at-a-time.md) | Scan one level at a time, and never delete | Accepted |
 | [0026](0026-fixed-terminal-layouts.md) | Fixed pane layouts, not a pane tree | Accepted |
+| [0027](0027-one-panel-size.md) | One panel size for every tab | Accepted |
