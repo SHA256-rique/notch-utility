@@ -25,9 +25,6 @@ struct OrbView: View {
     @EnvironmentObject private var themes: ThemeManager
     @EnvironmentObject private var controller: NotchPanelController
 
-    /// Translation already applied to the window during the current drag, so
-    /// each change event moves by the delta rather than re-applying the total.
-    @State private var appliedTranslation: CGSize = .zero
     @State private var isDragging = false
     @State private var isHovering = false
 
@@ -90,28 +87,16 @@ struct OrbView: View {
         }
         .help(focus.map { "\($0.text)\($0.detail.map { d in " — \(d)" } ?? "")" }
               ?? "NotchScotch — drag to move, click to open")
-        // Drag moves the window itself. The gesture reports a cumulative
-        // translation, so each change applies only the part not yet applied --
-        // otherwise the orb accelerates away from the cursor as the window moves
-        // underneath it and the next event measures from the new origin.
-        .gesture(
-            DragGesture(minimumDistance: 3, coordinateSpace: .global)
-                .onChanged { value in
-                    isDragging = true
-                    controller.wakeOrb()
-                    let delta = CGSize(
-                        width: value.translation.width - appliedTranslation.width,
-                        height: value.translation.height - appliedTranslation.height)
-                    appliedTranslation = value.translation
-                    controller.moveOrb(by: delta)
-                }
-                .onEnded { _ in
-                    appliedTranslation = .zero
-                    isDragging = false
-                    controller.commitOrbPosition()
-                    controller.scheduleOrbFade()
-                }
-        )
+        // Dragging is handled by AppKit, not by a SwiftUI gesture. See
+        // `OrbDragHandle` for why -- the gesture version flickered badly.
+        .overlay(OrbDragHandle(
+            onClick: { controller.expand(selecting: controller.activeTab ?? .builtin(.home)) },
+            onDragBegan: { isDragging = true; controller.wakeOrb() },
+            onDragEnded: {
+                isDragging = false
+                controller.commitOrbPosition()
+                controller.scheduleOrbFade()
+            }))
 
         // A transient gets the same toast the notch presentation uses, hung
         // under the orb. One shared shape for one category of message, whatever
@@ -171,5 +156,78 @@ struct OrbToast: View {
                 .shadow(color: .black.opacity(0.4), radius: 10, y: 3)
         )
         .fixedSize()
+    }
+}
+
+/// Drags the orb's window, and distinguishes a drag from a click.
+///
+/// ## Why AppKit and not a SwiftUI `DragGesture`
+/// The gesture version flickered badly, and the reason is a feedback loop that
+/// cannot be tuned away.
+///
+/// `DragGesture` reports a *cumulative* translation measured relative to the
+/// view — and therefore relative to the window the view is in. Moving the
+/// window in response changes the origin that the next event is measured from,
+/// so the next translation is already partly stale. Applying only the delta
+/// helps but does not fix it: the events and the window moves are on different
+/// clocks, so every frame the window is drawn somewhere slightly wrong and
+/// corrected on the next one. That correction, sixty times a second, is the
+/// flicker.
+///
+/// `NSWindow.performDrag(with:)` is the API this is for. AppKit tracks the
+/// mouse itself, at the window-server level, and moves the window in lockstep
+/// with the cursor — the same mechanism that drags any titlebar. There is no
+/// feedback loop because SwiftUI is not in it.
+///
+/// ## Why this also handles the click
+/// `performDrag` consumes the mouse-down and blocks until the mouse comes back
+/// up, so a click never reaches SwiftUI's `onTapGesture` once this view is in
+/// the way. Rather than fight that, the same handler decides: if the window did
+/// not move, it was a click.
+struct OrbDragHandle: NSViewRepresentable {
+    var onClick: () -> Void
+    var onDragBegan: () -> Void
+    var onDragEnded: () -> Void
+
+    func makeNSView(context: Context) -> DragView {
+        let view = DragView()
+        view.configure(onClick: onClick, onDragBegan: onDragBegan, onDragEnded: onDragEnded)
+        return view
+    }
+
+    func updateNSView(_ nsView: DragView, context: Context) {
+        nsView.configure(onClick: onClick, onDragBegan: onDragBegan, onDragEnded: onDragEnded)
+    }
+
+    final class DragView: NSView {
+        private var onClick: (() -> Void)?
+        private var onDragBegan: (() -> Void)?
+        private var onDragEnded: (() -> Void)?
+
+        func configure(onClick: @escaping () -> Void,
+                       onDragBegan: @escaping () -> Void,
+                       onDragEnded: @escaping () -> Void) {
+            self.onClick = onClick
+            self.onDragBegan = onDragBegan
+            self.onDragEnded = onDragEnded
+        }
+
+        /// The panel is non-activating, so without this the first click after
+        /// the app loses focus is swallowed activating it.
+        override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+        override func mouseDown(with event: NSEvent) {
+            guard let window else { return super.mouseDown(with: event) }
+            let before = window.frame.origin
+            onDragBegan?()
+            // Blocks until mouse-up, moving the window itself.
+            window.performDrag(with: event)
+            let after = window.frame.origin
+
+            // Anything under a point is a click that wobbled, not a drag.
+            let moved = hypot(after.x - before.x, after.y - before.y) > 1
+            onDragEnded?()
+            if !moved { onClick?() }
+        }
     }
 }

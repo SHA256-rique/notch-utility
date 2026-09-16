@@ -77,19 +77,9 @@ final class NotchPanelController: NSObject, ObservableObject {
             y: min(max(point.y, frame.minY), frame.maxY - OrbView.diameter))
     }
 
-    /// Live drag target, so the window can follow the cursor without a settings
-    /// write per frame.
+    /// Set while a drag is in flight so the frame maths uses where the window
+    /// actually is rather than where the last saved position says it was.
     private var orbDragOrigin: CGPoint?
-
-    func moveOrb(by delta: CGSize) {
-        guard presentation == .orb, state == .collapsed else { return }
-        let current = orbDragOrigin ?? orbOrigin
-        // AppKit's y axis points up and the gesture's points down.
-        let moved = clampOrb(CGPoint(x: current.x + delta.width,
-                                     y: current.y - delta.height))
-        orbDragOrigin = moved
-        panel.setFrameOrigin(moved)
-    }
 
     /// Re-lays-out after the presentation setting changes. Collapses first: a
     /// pill morphing into an orb mid-expansion has no sensible animation, and
@@ -146,10 +136,16 @@ final class NotchPanelController: NSObject, ObservableObject {
         DispatchQueue.main.asyncAfter(deadline: .now() + Self.orbIdleDelay, execute: work)
     }
 
+    /// Records where AppKit left the window after a drag.
+    ///
+    /// The position is read back off the window rather than accumulated from
+    /// gesture deltas, because `performDrag` moves the window itself and is the
+    /// only thing that knows where it ended up. See `OrbDragHandle` for why the
+    /// delta-accumulating version was removed.
     func commitOrbPosition() {
-        guard let dragged = orbDragOrigin else { return }
+        guard presentation == .orb, let panel else { return }
         orbDragOrigin = nil
-        orbOrigin = dragged
+        orbOrigin = panel.frame.origin
     }
 
     // MARK: - Geometry
