@@ -229,9 +229,11 @@ struct DiskMapTabView: View {
                     Text("scanning").font(.system(size: 9)).foregroundStyle(theme.secondaryText)
                 }
             } else {
-                Text("\(model.entries.count) items · \(StorageService.format(model.scannedBytes))")
+                Text("\(model.entries.count) items · \(StorageService.format(model.scannedBytes))"
+                     + (model.freshnessNote.isEmpty ? "" : " · \(model.freshnessNote)"))
                     .font(.system(size: 9)).monospacedDigit()
                     .foregroundStyle(theme.secondaryText)
+                    .help("Results are cached per folder and reused until the folder changes. Rescan forces a fresh walk.")
             }
 
             Picker("", selection: $mode) {
@@ -314,49 +316,83 @@ struct DiskMapTabView: View {
     private func treemap(_ theme: Theme) -> some View {
         GeometryReader { geo in
             let bounds = CGRect(origin: .zero, size: geo.size).insetBy(dx: 6, dy: 6)
-            // Only the biggest forty. Below that the rectangles are smaller than
-            // their own labels, and a treemap of 400 unreadable slivers is a
-            // texture, not a chart.
-            let shown = Array(model.entries.prefix(40))
-            let tiles = Treemap.layout(shown, in: bounds) { Double($0.bytes) }
+            let tiles = Treemap.layout(model.treemapEntries, in: bounds) { Double($0.bytes) }
 
             ZStack(alignment: .topLeading) {
+                // A light ground behind the tiles. Pale tiles on a black panel
+                // read as holes punched in it; on a light ground they read as
+                // pieces of one surface, which is what a treemap is.
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(Color(white: 0.16))
+                    .frame(width: geo.size.width - 4, height: geo.size.height - 4)
+                    .offset(x: 2, y: 2)
+
                 ForEach(tiles.indices, id: \.self) { index in
                     let tile = tiles[index]
-                    let isSelected = model.selected?.id == tile.item.id
-                    RoundedRectangle(cornerRadius: 4, style: .continuous)
-                        .fill(FileKind.of(tile.item.url).color.opacity(tile.item.isDirectory ? 0.55 : 0.38))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 4, style: .continuous)
-                                .stroke(isSelected ? theme.primaryText : Color.black.opacity(0.35),
-                                        lineWidth: isSelected ? 1.5 : 0.5))
-                        .overlay(alignment: .topLeading) {
-                            // Label only where it fits. A clipped name is worse
-                            // than no name -- "Applica…" next to "Applic…" tells
-                            // you nothing.
-                            if tile.rect.width > 54 && tile.rect.height > 26 {
-                                VStack(alignment: .leading, spacing: 1) {
-                                    Text(tile.item.name)
-                                        .font(.system(size: 9, weight: .semibold))
-                                        .foregroundStyle(.black.opacity(0.85))
-                                        .lineLimit(1)
-                                    Text(StorageService.format(tile.item.bytes))
-                                        .font(.system(size: 8)).monospacedDigit()
-                                        .foregroundStyle(.black.opacity(0.6))
-                                }
-                                .padding(4)
-                            }
-                        }
-                        .frame(width: max(1, tile.rect.width), height: max(1, tile.rect.height))
-                        .offset(x: tile.rect.minX, y: tile.rect.minY)
-                        .pointerCursor()
-                        .onTapGesture { model.select(tile.item) }
-                        .onTapGesture(count: 2) { model.drill(tile.item) }
-                        .help("\(tile.item.name) — \(StorageService.format(tile.item.bytes))")
-                        .contextMenu { contextMenu(for: tile.item) }
+                    tileView(tile, theme: theme)
+                }
+            }
+            .overlay(alignment: .bottom) {
+                if model.aggregatedCount > 0 {
+                    Text("\(model.aggregatedCount) smaller items grouped as “Everything else”")
+                        .font(.system(size: 9))
+                        .foregroundStyle(theme.secondaryText)
+                        .padding(.bottom, 2)
                 }
             }
         }
+    }
+
+    private func tileView(_ tile: Treemap.Tile<DiskEntry>, theme: Theme) -> some View {
+        let entry = tile.item
+        let isSelected = model.selected?.id == entry.id
+        let base = FileKind.of(entry.url).tileColor
+        // Folders get the full pastel; files sit a shade back, so the structure
+        // of the folder is readable before any label is.
+        let fill = entry.isDirectory ? base : base.opacity(0.78)
+        // Labels need two lines to be worth printing, and a name clipped to
+        // "Applica…" beside another clipped to "Applic…" tells you nothing.
+        let showsLabel = tile.rect.width > 46 && tile.rect.height > 30
+        let showsSize = tile.rect.width > 60 && tile.rect.height > 42
+
+        return RoundedRectangle(cornerRadius: 3, style: .continuous)
+            .fill(fill)
+            .overlay(
+                RoundedRectangle(cornerRadius: 3, style: .continuous)
+                    .stroke(isSelected ? Color.black : Color.black.opacity(0.28),
+                            lineWidth: isSelected ? 2 : 0.75)
+            )
+            .overlay(alignment: .topLeading) {
+                if showsLabel {
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(entry.name)
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(Color.black.opacity(0.88))
+                            .lineLimit(showsSize ? 2 : 1)
+                        if showsSize {
+                            Text(StorageService.format(entry.bytes))
+                                .font(.system(size: 9, weight: .medium)).monospacedDigit()
+                                .foregroundStyle(Color.black.opacity(0.62))
+                        }
+                    }
+                    .padding(5)
+                }
+            }
+            .overlay(alignment: .bottomTrailing) {
+                if entry.isDrillable && tile.rect.width > 34 && tile.rect.height > 34 {
+                    Image(systemName: "chevron.right.circle.fill")
+                        .font(.system(size: 9))
+                        .foregroundStyle(Color.black.opacity(0.32))
+                        .padding(3)
+                }
+            }
+            .frame(width: max(1, tile.rect.width), height: max(1, tile.rect.height))
+            .offset(x: tile.rect.minX, y: tile.rect.minY)
+            .pointerCursor()
+            .onTapGesture { model.select(entry) }
+            .onTapGesture(count: 2) { model.drill(entry) }
+            .help("\(entry.name) — \(StorageService.format(entry.bytes))")
+            .contextMenu { contextMenu(for: entry) }
     }
 
     // MARK: - Inspector

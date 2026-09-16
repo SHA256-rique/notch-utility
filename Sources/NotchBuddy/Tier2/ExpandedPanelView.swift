@@ -24,8 +24,19 @@ struct ExpandedPanelView: View {
         VStack(spacing: 0) {
             header(theme)
             Divider().overlay(theme.panelStroke)
-            tabBody
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            HStack(spacing: 0) {
+                tabBody
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                // The word rail runs down the side of every tab rather than
+                // living on Home, because a word you have to go looking for is
+                // not a word a day.
+                if settings.data.wordRailEnabled {
+                    WordRailView()
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .animation(Motion.sheet, value: settings.data.wordRailExpanded)
+
             // The dock lives at the bottom now. See TabDockView for why: the
             // top of this panel is behind the camera housing, and macOS lets
             // nobody draw there.
@@ -176,6 +187,7 @@ struct ExpandedPanelView: View {
         case .terminal: TerminalTabView()
         case .ai:       AIChatTabView()
         case .message:  MessageTabView()
+        case .teleprompter: TeleprompterTabView()
         case .settings: SettingsTabView()
         }
     }

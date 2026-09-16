@@ -19,6 +19,34 @@ final class DiskMapModel: ObservableObject {
 
     @Published private(set) var categories: [CleanupCategory] = []
     @Published private(set) var categorySizes: [String: UInt64] = [:]
+    @Published private(set) var lastScanned: Date?
+
+    /// Results are cached per directory for the life of the app.
+    ///
+    /// Without this the tab re-walked the filesystem every time it was opened,
+    /// and every time you navigated back up one level -- which is the single
+    /// most expensive thing in the app, on the busiest device in the machine.
+    /// Opening a tab should never cost a disk scan when a recent answer exists.
+    ///
+    /// The cache is checked against the directory's own modification date, so a
+    /// folder that has actually changed is rescanned and one that has not is
+    /// not. Time alone would either go stale or thrash.
+    private struct CachedScan {
+        let entries: [DiskEntry]
+        let directoryModified: Date?
+        let scannedAt: Date
+    }
+    private static var scanCache: [String: CachedScan] = [:]
+    private static var categoryCache: [String: (bytes: UInt64, measuredAt: Date)] = [:]
+
+    /// How long a cached answer is offered without rechecking. Disk usage moves
+    /// slowly; a five-minute-old number is not wrong in any way that matters,
+    /// and the Rescan button is right there.
+    private static let scanTTL: TimeInterval = 300
+    /// Categories get longer, because measuring them is the expensive one --
+    /// eight recursive walks of ~/Library, which is hundreds of thousands of
+    /// files.
+    private static let categoryTTL: TimeInterval = 1800
 
     let storage = StorageService()
 
@@ -61,8 +89,11 @@ final class DiskMapModel: ObservableObject {
     func activate() {
         storage.activate()
         categories = CleanupCategory.all()
+        // Serve whatever is cached first, so opening the tab is instant, then
+        // refresh only what has actually gone stale.
+        applyCachedCategories()
         measureCategories()
-        if entries.isEmpty { rescan() }
+        loadDirectory(directory, allowCache: true)
     }
 
     func deactivate() {
@@ -87,7 +118,7 @@ final class DiskMapModel: ObservableObject {
         selected = nil
         confirmingTrash = nil
         lastError = nil
-        rescan()
+        loadDirectory(url, allowCache: true)
     }
 
     func drill(_ entry: DiskEntry) {
@@ -112,13 +143,25 @@ final class DiskMapModel: ObservableObject {
 
     // MARK: - Scanning
 
+    /// Explicit user action: always re-walks, ignoring the cache.
     func rescan() {
+        loadDirectory(directory, allowCache: false)
+    }
+
+    private func loadDirectory(_ target: URL, allowCache: Bool) {
         scanTask?.cancel()
+
+        if allowCache, let cached = Self.scanCache[target.path], Self.isFresh(cached, for: target) {
+            entries = cached.entries
+            lastScanned = cached.scannedAt
+            isScanning = false
+            return
+        }
+
         entries = []
         isScanning = true
-        let target = directory
 
-        scanTask = Task { [weak self] in
+        scanTask = Task(priority: .utility) { [weak self] in
             guard let self else { return }
             let found = await scanner.scan(directory: target) { partial in
                 Task { @MainActor [weak self] in
@@ -128,12 +171,40 @@ final class DiskMapModel: ObservableObject {
                     self.entries = partial
                 }
             }
+            guard !Task.isCancelled else { return }
             await MainActor.run {
+                let modified = (try? target.resourceValues(forKeys: [.contentModificationDateKey]))?
+                    .contentModificationDate
+                Self.scanCache[target.path] = CachedScan(entries: found,
+                                                         directoryModified: modified,
+                                                         scannedAt: Date())
                 guard self.directory == target else { return }
                 self.entries = found
+                self.lastScanned = Date()
                 self.isScanning = false
             }
         }
+    }
+
+    /// A cached scan is good while it is young *and* the directory has not been
+    /// touched since. Either test alone is wrong: time alone serves stale
+    /// results after a large download, and mtime alone never expires for a
+    /// folder whose own timestamp does not change when its children grow.
+    private static func isFresh(_ cached: CachedScan, for url: URL) -> Bool {
+        guard Date().timeIntervalSince(cached.scannedAt) < scanTTL else { return false }
+        let modified = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?
+            .contentModificationDate
+        return modified == cached.directoryModified
+    }
+
+    /// Human note for the breadcrumb bar, so "is this number current" is never
+    /// a guess.
+    var freshnessNote: String {
+        guard let lastScanned else { return "" }
+        let age = Int(Date().timeIntervalSince(lastScanned))
+        if age < 5 { return "just now" }
+        if age < 60 { return "\(age)s ago" }
+        return "\(age / 60)m ago"
     }
 
     /// Sizes the quick-win categories in the background.
@@ -141,18 +212,66 @@ final class DiskMapModel: ObservableObject {
     /// Sequential rather than concurrent: these are all on the same disk, and
     /// eight parallel walks of ~/Library contend for the same device while
     /// making every one of them slower.
+    private func applyCachedCategories() {
+        for (id, cached) in Self.categoryCache {
+            categorySizes[id] = cached.bytes
+        }
+    }
+
+    /// Sizes the quick-win categories in the background, skipping any measured
+    /// recently enough.
+    ///
+    /// Sequential rather than concurrent, and at `background` priority: these
+    /// are eight recursive walks of ~/Library on the same physical device.
+    /// Running them in parallel makes every one of them slower while the user
+    /// is waiting on the folder scan they actually asked for.
     private func measureCategories() {
         categoryTask?.cancel()
-        let targets = categories
-        categoryTask = Task.detached(priority: .utility) { [weak self] in
-            for category in targets {
+        let stale = categories.filter { category in
+            guard let cached = Self.categoryCache[category.id] else { return true }
+            return Date().timeIntervalSince(cached.measuredAt) >= Self.categoryTTL
+        }
+        guard !stale.isEmpty else { return }
+
+        categoryTask = Task.detached(priority: .background) { [weak self] in
+            for category in stale {
                 if Task.isCancelled { return }
                 let total = DiskScanner.total(of: category.url)
+                if Task.isCancelled { return }
                 guard let model = self else { return }
-                await MainActor.run { model.categorySizes[category.id] = total.bytes }
+                await MainActor.run {
+                    Self.categoryCache[category.id] = (total.bytes, Date())
+                    model.categorySizes[category.id] = total.bytes
+                }
             }
         }
     }
+
+    // MARK: - Treemap input
+
+    /// What the treemap draws: the biggest tiles, plus one "everything else".
+    ///
+    /// Drawing all of them produced 400 rectangles smaller than their own
+    /// labels, which is a texture rather than a chart. Truncating silently was
+    /// worse -- the tiles no longer summed to the folder, so the picture
+    /// quietly lied about proportions. Rolling the tail into a single tile keeps
+    /// the areas honest *and* every tile legible.
+    var treemapEntries: [DiskEntry] {
+        let limit = 28
+        guard entries.count > limit else { return entries }
+        let shown = Array(entries.prefix(limit))
+        let rest = entries.dropFirst(limit)
+        let restBytes = rest.reduce(0) { $0 + $1.bytes }
+        guard restBytes > 0 else { return shown }
+        return shown + [DiskEntry(url: directory.appendingPathComponent(".nb-everything-else"),
+                                  name: "Everything else",
+                                  isDirectory: false,
+                                  bytes: restBytes,
+                                  items: rest.reduce(0) { $0 + $1.items },
+                                  isBundle: false)]
+    }
+
+    var aggregatedCount: Int { max(0, entries.count - 28) }
 
     // MARK: - Composition
 
@@ -199,6 +318,10 @@ final class DiskMapModel: ObservableObject {
             NotchArbiter.shared.flash("Moved to Bin", symbol: "trash.fill",
                                       module: .files,
                                       detail: "\(StorageService.format(entry.bytes)) freed")
+            // The cached answers for this folder and its categories are now
+            // wrong by exactly the size of what just moved.
+            Self.scanCache.removeValue(forKey: directory.path)
+            Self.categoryCache.removeAll()
             storage.refresh()
             measureCategories()
         } catch {

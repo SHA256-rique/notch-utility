@@ -23,7 +23,37 @@ struct MessageTabView: View {
                         flash.isShowing ? flash.takeDown() : flash.flash()
                     }
                     .buttonStyle(NBButtonStyle(tint: theme.tint(.message), filled: !flash.isShowing))
+                    if flash.isShowing && flash.autoTakeDown {
+                        Button("+10s") { flash.extend() }
+                            .buttonStyle(NBButtonStyle(tint: theme.tint(.message), compact: true))
+                    }
                 }
+
+                HStack(spacing: 10) {
+                    Toggle("Take it down automatically", isOn: $flash.autoTakeDown)
+                        .font(.system(size: 10)).toggleStyle(.checkbox)
+                    if flash.autoTakeDown {
+                        Text("after \(Int(flash.autoTakeDownSeconds))s")
+                            .font(.system(size: 10)).monospacedDigit()
+                            .foregroundStyle(theme.secondaryText)
+                        Slider(value: $flash.autoTakeDownSeconds, in: 3...60, step: 1)
+                            .controlSize(.mini).frame(width: 120)
+                    }
+                    Spacer()
+                    if flash.isShowing {
+                        HStack(spacing: 4) {
+                            Circle().fill(Color.red).frame(width: 6, height: 6)
+                            Text(flash.autoTakeDown
+                                 ? "on screen · \(flash.secondsRemaining)s left"
+                                 : "on screen")
+                                .font(.system(size: 10, weight: .medium)).monospacedDigit()
+                                .foregroundStyle(theme.tint(.message))
+                        }
+                    }
+                }
+                Text("A banner is a full-width strip across the top of your display. Leaving one up by accident means it is still there during your next screen share — which is why it takes itself down by default.")
+                    .font(.system(size: 9)).foregroundStyle(theme.secondaryText)
+                    .fixedSize(horizontal: false, vertical: true)
 
                 NBSectionHeader(title: "Style")
                 FlowRow(spacing: 6) {

@@ -36,7 +36,29 @@ final class FlashMessageController: ObservableObject {
     @Published var useThemeColor: Bool = true
     @Published private(set) var isShowing = false
 
+    /// Seconds the banner stays up before taking itself down.
+    ///
+    /// It used to stay until dismissed, which is wrong for what this actually
+    /// is. A flash message is a thing you show someone across the room, or a
+    /// reminder to yourself during a call -- it is over in a few seconds, and
+    /// the person who put it up is by definition looking at something else.
+    /// Relying on them to remember to take it down means it is still there an
+    /// hour later, on a full-width strip across the top of their screen, during
+    /// the next screen share.
+    @Published var autoTakeDownSeconds: Double = 8
+    /// Off means "stay until I take it down", for the case where the message is
+    /// the point -- a sign on the screen for as long as it is needed.
+    @Published var autoTakeDown: Bool = true
+    /// Counts down while showing, so the composer can display the remaining
+    /// time rather than leaving the user guessing.
+    @Published private(set) var secondsRemaining: Int = 0
+
     private var window: NSWindow?
+    /// One-shot, re-armed per flash. Not a hub registration: the hub is switched
+    /// off while the panel is collapsed, which is exactly when a flash message
+    /// is most likely to be up.
+    private var takeDownSource: DispatchSourceTimer?
+    private var tickSource: DispatchSourceTimer?
 
     private init() {}
 
@@ -46,12 +68,59 @@ final class FlashMessageController: ObservableObject {
         guard !content.isEmpty else { return }
         show()
         SnippetStore.shared.add(text: content, title: "", tag: "flashed")
+        armAutoTakeDown()
     }
 
     func takeDown() {
+        cancelTimers()
         window?.orderOut(nil)
         window = nil
         isShowing = false
+        secondsRemaining = 0
+    }
+
+    /// Adds time to a banner that is already up, for when the few seconds turn
+    /// out not to have been enough.
+    func extend(by seconds: Double = 10) {
+        guard isShowing else { return }
+        secondsRemaining += Int(seconds)
+        armAutoTakeDown(seconds: Double(secondsRemaining))
+    }
+
+    private func armAutoTakeDown(seconds: Double? = nil) {
+        cancelTimers()
+        guard autoTakeDown else {
+            secondsRemaining = 0
+            return
+        }
+        let duration = max(2, seconds ?? autoTakeDownSeconds)
+        secondsRemaining = Int(duration.rounded())
+
+        let takedown = DispatchSource.makeTimerSource(queue: .main)
+        takedown.schedule(deadline: .now() + duration, leeway: .milliseconds(150))
+        takedown.setEventHandler { [weak self] in
+            MainActor.assumeIsolated { self?.takeDown() }
+        }
+        takedown.resume()
+        takeDownSource = takedown
+
+        // A second timer purely for the countdown label. It exists only while a
+        // banner is up, which is seconds at a time.
+        let tick = DispatchSource.makeTimerSource(queue: .main)
+        tick.schedule(deadline: .now() + 1, repeating: 1, leeway: .milliseconds(200))
+        tick.setEventHandler { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.secondsRemaining = max(0, self.secondsRemaining - 1)
+            }
+        }
+        tick.resume()
+        tickSource = tick
+    }
+
+    private func cancelTimers() {
+        takeDownSource?.cancel(); takeDownSource = nil
+        tickSource?.cancel(); tickSource = nil
     }
 
     private func show() {

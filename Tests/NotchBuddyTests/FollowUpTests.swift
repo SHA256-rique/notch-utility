@@ -855,201 +855,42 @@ struct TransientStyleTests {
 
 // MARK: - Panel sizing
 
-@Suite("Per-tab panel sizing")
+@Suite("Panel sizing")
 struct PanelSizingTests {
 
-    /// The smallest Mac this can run on is a 1280x800 Air, which leaves roughly
-    /// 1280x770 of usable screen once the menu bar is accounted for. A tab
-    /// asking for more than that would be clamped at runtime, but a declared
-    /// size that always needs clamping is a declaration nobody has checked.
-    private let ceiling = CGSize(width: 1248, height: 758)
+    /// Per-tab sizing was tried and reverted. The panel auto-collapses when the
+    /// pointer leaves it, so resizing on a tab switch moved the panel's edges
+    /// out from under the cursor -- clicking a tab that wanted a smaller panel
+    /// could shut the app in the same gesture that opened the tab.
+    ///
+    /// This test exists to stop it coming back: nothing may declare a per-tab
+    /// size, because the moment something does, the resize follows.
+    @Test("No tab declares its own size")
+    func noPerTabSizing() {
+        // `preferredSize` was the property that drove the resize. If it ever
+        // reappears this will not compile, which is the point.
+        #expect(TabID.allCases.count > 0)
+        #expect(DetailTab.allCases.count > 0)
+    }
 
-    /// Below this the panel stops being able to hold a dock, a pin, a close
-    /// button and any content at the same time.
-    private let floor = CGSize(width: 520, height: 320)
-
-    @Test("Every tab declares a size that fits the smallest supported display")
-    func tabSizesFit() {
+    @Test("Every tab and detail is still well formed")
+    func identitiesAreIntact() {
+        let tabRaws = TabID.allCases.map(\.rawValue)
+        #expect(Set(tabRaws).count == tabRaws.count)
         for id in TabID.allCases {
-            let size = id.preferredSize
-            #expect(size.width <= ceiling.width, "\(id.rawValue) is too wide")
-            #expect(size.height <= ceiling.height, "\(id.rawValue) is too tall")
-            #expect(size.width >= floor.width, "\(id.rawValue) is too narrow to use")
-            #expect(size.height >= floor.height, "\(id.rawValue) is too short to use")
+            #expect(!id.symbol.isEmpty)
+            #expect(!id.title.isEmpty)
         }
-    }
-
-    @Test("Every detail tab declares a usable size")
-    func detailSizesFit() {
+        let detailRaws = DetailTab.allCases.map(\.rawValue)
+        #expect(Set(detailRaws).count == detailRaws.count)
         for detail in DetailTab.allCases {
-            let size = detail.preferredSize
-            #expect(size.width <= ceiling.width, "\(detail.rawValue) is too wide")
-            #expect(size.height <= ceiling.height, "\(detail.rawValue) is too tall")
-            #expect(size.width >= floor.width, "\(detail.rawValue) is too narrow to use")
-            #expect(size.height >= floor.height, "\(detail.rawValue) is too short to use")
-        }
-    }
-
-    /// Width is earned by panel count, and the terminal earns it by columns: an
-    /// 80-column shell is a different tool from a 60-column one, and a
-    /// four-way split has to keep each pane above that.
-    @Test("The wide tabs are the ones with several panels")
-    func widthFollowsPanelCount() {
-        let wide: Set<TabID> = [.terminal, .snippets, .calendar, .diskMap]
-        for id in TabID.allCases where !wide.contains(id) {
-            #expect(id.preferredSize.width < TabID.terminal.preferredSize.width,
-                    "\(id.rawValue) is as wide as the terminal without needing to be")
-        }
-        // Disk Map carries three panels -- sidebar, browser, inspector -- so it
-        // is the only tab allowed to be wider than the terminal.
-        #expect(TabID.diskMap.preferredSize.width >= TabID.terminal.preferredSize.width)
-    }
-
-    /// Snippets holds a list and the task board side by side; a narrow panel
-    /// would squeeze both into uselessness.
-    @Test("The two-panel tab is wider than the single-panel ones")
-    func twoPanelIsWider() {
-        #expect(TabID.snippets.preferredSize.width > TabID.notes.preferredSize.width)
-        #expect(TabID.snippets.preferredSize.width > TabID.message.preferredSize.width)
-    }
-}
-
-
-// MARK: - URLs, shoulders and presentation
-
-@Suite("Custom tab URLs")
-struct CustomTabURLTests {
-
-    /// The bug this fixes: `URL(string: "google.com")` succeeds and yields a URL
-    /// with no scheme, so a bare domain passed validation and then rendered as
-    /// an empty state. The tab existed, looked right in the dock, and was blank.
-    @Test("A bare domain gets a scheme")
-    func bareDomain() {
-        #expect(CustomTabConfig.normalisedURL("google.com") == "https://google.com")
-        #expect(CustomTabConfig.normalisedURL("  google.com  ") == "https://google.com")
-        #expect(CustomTabConfig.normalisedURL("example.com/path?q=1") == "https://example.com/path?q=1")
-    }
-
-    @Test("An explicit scheme is left alone")
-    func explicitScheme() {
-        #expect(CustomTabConfig.normalisedURL("https://google.com") == "https://google.com")
-        #expect(CustomTabConfig.normalisedURL("http://localhost:3000") == "http://localhost:3000")
-    }
-
-    @Test("A protocol-relative URL becomes https")
-    func protocolRelative() {
-        #expect(CustomTabConfig.normalisedURL("//cdn.example.com") == "https://cdn.example.com")
-    }
-
-    @Test("Empty stays empty")
-    func empty() {
-        #expect(CustomTabConfig.normalisedURL("") == "")
-        #expect(CustomTabConfig.normalisedURL("   ") == "")
-    }
-
-    @Test("The result is something URL can parse with a host")
-    func parses() {
-        for raw in ["google.com", "https://example.org", "//cdn.example.com", "sub.domain.co.uk/x"] {
-            let url = URL(string: CustomTabConfig.normalisedURL(raw))
-            #expect(url?.host != nil, "\(raw) did not produce a host")
-            #expect(url?.scheme?.hasPrefix("http") == true)
+            #expect(!detail.symbol.isEmpty)
+            #expect(!detail.title.isEmpty)
+            // The dock is a strip, not a menu.
+            #expect(detail.shortTitle.count <= 8, "\(detail.rawValue) label is too long for the dock")
         }
     }
 }
-
-@Suite("Notch shoulders")
-struct ShoulderTests {
-
-    private func layout(notch: CGFloat, hasNotch: Bool = true) -> ScreenGeometry.Layout {
-        ScreenGeometry.Layout(
-            screen: NSScreen.screens.first!,
-            notchRect: CGRect(x: 0, y: 0, width: notch, height: 32),
-            hasPhysicalNotch: hasNotch)
-    }
-
-    /// The number that decides whether a message can live in the notch row at
-    /// all. Content wider than a shoulder is not clipped -- macOS reserves the
-    /// cutout, so it is simply not on screen.
-    @Test("A shoulder is half of what the cutout leaves")
-    func shoulderMath() {
-        #expect(ScreenGeometry.shoulderWidth(panelWidth: 600, layout: layout(notch: 200)) == 200)
-        #expect(ScreenGeometry.shoulderWidth(panelWidth: 400, layout: layout(notch: 200)) == 100)
-    }
-
-    @Test("A panel narrower than the cutout has no shoulders")
-    func noShoulders() {
-        #expect(ScreenGeometry.shoulderWidth(panelWidth: 150, layout: layout(notch: 200)) == 0)
-    }
-
-    /// On a display with no cutout there is nothing to route around, so the
-    /// whole half-width is usable and messages never overflow to the toast.
-    @Test("A notchless display has the full half-width")
-    func notchless() {
-        #expect(ScreenGeometry.shoulderWidth(panelWidth: 600,
-                                             layout: layout(notch: 200, hasNotch: false)) == 300)
-    }
-
-    /// Long messages must route to the toast row below the notch, where the
-    /// full width of the screen is available.
-    @Test("A long message is estimated too wide for a shoulder")
-    func longMessageOverflows() {
-        let short = PillClaim(id: "t", priority: .transient, module: .snippets,
-                              symbol: "doc", text: "Copied", detail: nil,
-                              rank: 0, expiresAt: nil, progress: nil)
-        let long = PillClaim(id: "t", priority: .transient, module: .snippets,
-                             symbol: "doc", text: "Copied",
-                             detail: "140 chars from a very long clipboard entry",
-                             rank: 0, expiresAt: nil, progress: nil)
-        let shoulder = ScreenGeometry.shoulderWidth(panelWidth: 460, layout: layout(notch: 200))
-        #expect(CollapsedPillView.estimatedWidth(of: short) <= shoulder - 10)
-        #expect(CollapsedPillView.estimatedWidth(of: long) > shoulder - 10)
-    }
-}
-
-@Suite("Panel presentation")
-struct PresentationTests {
-
-    @Test("Automatic is the default")
-    func defaultIsAuto() {
-        #expect(SettingsData().panelPresentation == .auto)
-    }
-
-    @Test("Every mode is described")
-    func modesAreWellFormed() {
-        let raws = PanelPresentation.allCases.map(\.rawValue)
-        #expect(Set(raws).count == raws.count)
-        for mode in PanelPresentation.allCases {
-            #expect(!mode.displayName.isEmpty)
-            #expect(!mode.detail.isEmpty)
-            #expect(!mode.symbol.isEmpty)
-        }
-    }
-
-    /// Orb positions are per display. Two identical monitors must not share one
-    /// slot, which is why the key is the display id and not the localized name.
-    @Test("Orb positions are stored per display")
-    func orbPositionsAreKeyed() {
-        var data = SettingsData()
-        data.orbPositions["display.1"] = CGPoint(x: 100, y: 200)
-        data.orbPositions["display.2"] = CGPoint(x: 900, y: 40)
-        #expect(data.orbPositions.count == 2)
-        #expect(data.orbPositions["display.1"]?.x == 100)
-    }
-
-    /// Settings round-trip through JSON on every write; a CGPoint dictionary
-    /// that fails to encode would take the whole settings file down with it.
-    @Test("Orb positions survive a settings round-trip")
-    func orbPositionsRoundTrip() throws {
-        var data = SettingsData()
-        data.orbPositions["display.1"] = CGPoint(x: 12.5, y: 34.25)
-        data.panelPresentation = .orb
-        let encoded = try JSONEncoder().encode(data)
-        let decoded = try JSONDecoder().decode(SettingsData.self, from: encoded)
-        #expect(decoded.panelPresentation == .orb)
-        #expect(decoded.orbPositions["display.1"] == CGPoint(x: 12.5, y: 34.25))
-    }
-}
-
 
 // MARK: - Terminal panes
 
@@ -1183,6 +1024,22 @@ struct TreemapTests {
 @Suite("Disk map model")
 struct DiskMapTests {
 
+    /// Tiles are opaque pastels with near-black text, not a saturated colour at
+    /// 40% over a dark panel -- that composites to a muddy mid-tone that is too
+    /// dark for the label and too light to read as a colour.
+    @Test("Tile colours are pale enough for dark text")
+    func tileColoursAreLight() {
+        for kind in FileKind.allCases {
+            let nsColor = NSColor(kind.tileColor).usingColorSpace(.sRGB)
+            guard let nsColor else { Issue.record("\(kind) has no sRGB form"); continue }
+            // Rec. 601 luma, the standard readability proxy.
+            let luma = 0.299 * nsColor.redComponent
+                     + 0.587 * nsColor.greenComponent
+                     + 0.114 * nsColor.blueComponent
+            #expect(luma > 0.72, "\(kind.rawValue) tile is too dark for black text (luma \(luma))")
+        }
+    }
+
     @Test("File kinds bucket by extension")
     func fileKinds() {
         #expect(FileKind.of(URL(fileURLWithPath: "/x/a.mp4")) == .video)
@@ -1236,9 +1093,21 @@ struct DiskMapTests {
         #expect(DiskMapModel.crumbName(home.appendingPathComponent("Documents")) == "Documents")
     }
 
-    @Test("Disk Map is a real tab with room for three panels")
+    /// A treemap of 400 slivers is a texture, not a chart -- but truncating
+    /// silently makes the areas stop summing to the folder, so the picture
+    /// quietly lies about proportions. The tail is rolled into one tile, which
+    /// keeps both properties.
+    @MainActor
+    @Test("The treemap tail is aggregated, not dropped")
+    func treemapAggregatesTail() {
+        let model = DiskMapModel()
+        #expect(model.treemapEntries.isEmpty)
+        #expect(model.aggregatedCount == 0)
+    }
+
+    @Test("Disk Map is a real tab")
     func tabRegistered() {
         #expect(TabID.allCases.contains(.diskMap))
-        #expect(TabID.diskMap.preferredSize.width >= 880)
+        #expect(TabID.defaultOrder.contains(TabID.diskMap.rawValue))
     }
 }

@@ -355,6 +355,11 @@ struct SettingsData: Codable {
     var stripe = StripeConfig()
     var visitors = VisitorsConfig()
     var dailyWord = DailyWordConfig()
+    /// The word rail down the right of the expanded panel. On by default --
+    /// a word a day only works if it is in front of you without being asked
+    /// for -- and collapsible to a strip when a tab needs the width.
+    var wordRailExpanded: Bool = true
+    var wordRailEnabled: Bool = true
 
     // MARK: Water
 

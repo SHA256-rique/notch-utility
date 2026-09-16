@@ -22,15 +22,44 @@ import Combine
 @MainActor
 final class DailyWordService: ObservableObject {
 
+    /// A word the user has been shown, kept forever.
+    ///
+    /// The glossary is the point of the feature, not a side effect of it: one
+    /// word a day is only worth doing if you can go back and find the one from
+    /// last Tuesday. It stores a copy of the term and meaning rather than a
+    /// reference into `WordPacks`, so editing or reordering a pack later cannot
+    /// orphan someone's history.
+    struct SeenWord: Codable, Identifiable, Equatable {
+        var id: String { entryID }
+        var entryID: String
+        var language: String
+        var term: String
+        var meaning: String
+        var firstSeen: Date
+        var isLearned: Bool = false
+
+        var languageValue: WordLanguage? { WordLanguage(rawValue: language) }
+    }
+
     private struct Model: Codable {
         /// `WordEntry.id` values the user has ticked off.
         var learned: [String] = []
         /// `yyyy-MM-dd` days on which at least one word was marked learned.
         var learnedDays: [String] = []
+        /// Every word ever shown, keyed by entry id.
+        var seen: [String: SeenWord] = [:]
     }
 
     @Published private(set) var learned: Set<String> = []
     @Published private(set) var learnedDays: Set<String> = []
+    @Published private(set) var seen: [String: SeenWord] = [:]
+
+    /// Manual step away from today's word, for "show me another".
+    ///
+    /// Reset at midnight along with `dayStamp`: skipping ahead three words on a
+    /// Tuesday should not still be three ahead on Wednesday, or the daily word
+    /// stops being daily.
+    @Published private(set) var manualOffset: Int = 0
     /// Forces a re-read of today's words when the day rolls over while the
     /// panel happens to be open.
     @Published private(set) var dayStamp: String = DailyWordService.today()
@@ -44,6 +73,7 @@ final class DailyWordService: ObservableObject {
         let model = store.load() ?? Model()
         learned = Set(model.learned)
         learnedDays = Set(model.learnedDays)
+        seen = model.seen
     }
 
     // MARK: - Lifecycle
@@ -52,11 +82,17 @@ final class DailyWordService: ObservableObject {
     /// panel is pinned open. Ten minutes is plenty -- being up to ten minutes
     /// late to swap the card at 00:00 is not a defect anyone can perceive.
     func activate() {
+        recordToday()
         guard token == nil else { return }
         token = WidgetPollingHub.shared.register(label: "daily-word", interval: 600) { [weak self] in
             Task { @MainActor in
+                guard let self else { return }
                 let now = Self.today()
-                if now != self?.dayStamp { self?.dayStamp = now }
+                guard now != self.dayStamp else { return }
+                // A new day: new words, and any manual skipping is forgotten.
+                self.dayStamp = now
+                self.manualOffset = 0
+                self.recordToday()
             }
         }
     }
@@ -80,8 +116,77 @@ final class DailyWordService: ObservableObject {
     func word(for language: WordLanguage, on date: Date = Date()) -> WordEntry? {
         let pack = WordPacks.pack(for: language)
         guard !pack.isEmpty else { return nil }
-        let index = (Self.dayNumber(date) + Self.offset(for: language)) % pack.count
+        // `%` in Swift keeps the sign of the dividend, so stepping backwards
+        // past position zero would index negatively. The extra `+ count` makes
+        // the modulo behave the way the maths does.
+        let raw = Self.dayNumber(date) + Self.offset(for: language) + manualOffset
+        let index = ((raw % pack.count) + pack.count) % pack.count
         return pack[index]
+    }
+
+    // MARK: - Stepping
+
+    func nextWord() {
+        manualOffset += 1
+        recordToday()
+    }
+
+    func previousWord() {
+        manualOffset -= 1
+        recordToday()
+    }
+
+    /// Back to the word the day actually calls for.
+    func backToToday() {
+        guard manualOffset != 0 else { return }
+        manualOffset = 0
+        recordToday()
+    }
+
+    var isShowingToday: Bool { manualOffset == 0 }
+
+    // MARK: - Glossary
+
+    /// Files whatever is currently on screen into the glossary.
+    ///
+    /// Called on display rather than on some explicit "save" action: the user
+    /// asked to be taught a word, they were shown one, and a glossary that only
+    /// contains the ones they remembered to press a button on is a worse record
+    /// of what they have seen than no glossary at all.
+    func recordToday() {
+        for entry in todaysWords { record(entry) }
+    }
+
+    func record(_ entry: WordEntry) {
+        guard seen[entry.id] == nil else { return }
+        seen[entry.id] = SeenWord(entryID: entry.id,
+                                  language: entry.language.rawValue,
+                                  term: entry.term,
+                                  meaning: entry.meaning,
+                                  firstSeen: Date(),
+                                  isLearned: learned.contains(entry.id))
+        persist()
+    }
+
+    /// The glossary, most recently seen first.
+    func glossary(matching query: String = "", language: WordLanguage? = nil) -> [SeenWord] {
+        seen.values
+            .filter { language == nil || $0.language == language?.rawValue }
+            .filter {
+                query.isEmpty
+                    || $0.term.localizedCaseInsensitiveContains(query)
+                    || $0.meaning.localizedCaseInsensitiveContains(query)
+            }
+            .sorted { $0.firstSeen > $1.firstSeen }
+    }
+
+    var glossaryCount: Int { seen.count }
+
+    /// Looks a glossary entry back up in its pack, so the detail card can show
+    /// the example sentence the summary does not store.
+    func entry(for word: SeenWord) -> WordEntry? {
+        guard let language = word.languageValue else { return nil }
+        return WordPacks.pack(for: language).first { $0.term == word.term }
     }
 
     /// Days since the reference epoch, in the user's own calendar. Using the
@@ -119,11 +224,14 @@ final class DailyWordService: ObservableObject {
     func toggleLearned(_ entry: WordEntry) {
         if learned.contains(entry.id) {
             learned.remove(entry.id)
+            seen[entry.id]?.isLearned = false
         } else {
             learned.insert(entry.id)
             learnedDays.insert(Self.today())
+            record(entry)
             NotchArbiter.shared.flash("Learned", symbol: "checkmark.seal.fill",
                                       module: .notes, detail: entry.term)
+            seen[entry.id]?.isLearned = true
         }
         persist()
     }
@@ -154,13 +262,15 @@ final class DailyWordService: ObservableObject {
 
     func totalWords(for language: WordLanguage) -> Int { WordPacks.pack(for: language).count }
 
-    private func persist() {
-        store.save(Model(learned: Array(learned).sorted(), learnedDays: Array(learnedDays).sorted()))
+    private var model: Model {
+        Model(learned: Array(learned).sorted(),
+              learnedDays: Array(learnedDays).sorted(),
+              seen: seen)
     }
 
-    func flush() {
-        store.saveNow(Model(learned: Array(learned).sorted(), learnedDays: Array(learnedDays).sorted()))
-    }
+    private func persist() { store.save(model) }
+
+    func flush() { store.saveNow(model) }
 
     // MARK: - Speech
 

@@ -4,7 +4,7 @@ import SwiftUI
 /// persisted to JSON, and a raw-value string survives reordering and removal of
 /// cases in a way an Int would not.
 enum TabID: String, Codable, CaseIterable, Identifiable, Hashable {
-    case home, time, snippets, notes, calendar, files, diskMap, api, terminal, ai, message, settings
+    case home, time, snippets, notes, calendar, files, diskMap, api, terminal, ai, message, teleprompter, settings
     var id: String { rawValue }
 
     static let defaultOrder: [String] = TabID.allCases.map(\.rawValue)
@@ -22,6 +22,7 @@ enum TabID: String, Codable, CaseIterable, Identifiable, Hashable {
         case .terminal: return "Terminal"
         case .ai: return "AI Chat"
         case .message: return "Message"
+        case .teleprompter: return "Teleprompter"
         case .settings: return "Settings"
         }
     }
@@ -39,6 +40,7 @@ enum TabID: String, Codable, CaseIterable, Identifiable, Hashable {
         case .terminal: return "terminal.fill"
         case .ai: return "sparkles"
         case .message: return "text.bubble.fill"
+        case .teleprompter: return "text.viewfinder"
         case .settings: return "gearshape.fill"
         }
     }
@@ -56,38 +58,8 @@ enum TabID: String, Codable, CaseIterable, Identifiable, Hashable {
         case .terminal: return .terminal
         case .ai: return .ai
         case .message: return .message
+        case .teleprompter: return .message
         case .settings: return .settings
-        }
-    }
-
-    /// How much room this tab wants when it is the one on screen.
-    ///
-    /// ## Why not one size for everything
-    /// Every tab used to open at 680x420, which meant the panel was sized for
-    /// none of them: the terminal got 28 rows on a 15" display, the Home grid
-    /// scrolled after four tiles, and the Message composer sat in a box twice
-    /// the height of its content with a grey void underneath. A single size is
-    /// only right if every tab holds the same amount, and they visibly do not.
-    ///
-    /// The panel is drawn chrome hanging from the notch, so it cannot be
-    /// user-resizable without inventing a grab handle and a persisted size per
-    /// tab. Declaring the size each tab actually wants gets most of that value
-    /// for none of that complexity, and the resize rides the same spring as the
-    /// open/close animation.
-    var preferredSize: CGSize {
-        switch self {
-        case .home:     return CGSize(width: 640, height: 470)   // ten tiles, two columns
-        case .time:     return CGSize(width: 620, height: 440)
-        case .snippets: return CGSize(width: 800, height: 450)   // list plus the task board
-        case .notes:    return CGSize(width: 600, height: 430)
-        case .calendar: return CGSize(width: 800, height: 470)   // agenda and month, side by side
-        case .files:    return CGSize(width: 660, height: 440)
-        case .diskMap:  return CGSize(width: 900, height: 540)   // sidebar, browser and inspector
-        case .api:      return CGSize(width: 720, height: 480)   // request above, response below
-        case .terminal: return CGSize(width: 880, height: 540)   // four panes still need ~60 columns each
-        case .ai:       return CGSize(width: 680, height: 480)
-        case .message:  return CGSize(width: 620, height: 400)
-        case .settings: return CGSize(width: 700, height: 490)
         }
     }
 
@@ -97,7 +69,7 @@ enum TabID: String, Codable, CaseIterable, Identifiable, Hashable {
     /// and only then does the app activate.
     var needsKeyboardFocus: Bool {
         switch self {
-        case .terminal, .ai, .notes, .api, .message, .snippets, .settings: return true
+        case .terminal, .ai, .notes, .api, .message, .snippets, .teleprompter, .settings: return true
         default: return false
         }
     }
@@ -170,16 +142,8 @@ enum DetailTab: String, CaseIterable, Identifiable, Hashable {
         }
     }
 
-    var preferredSize: CGSize {
-        switch self {
-        case .screenTime:  return CGSize(width: 660, height: 480)  // chart plus a per-app list
-        case .revenue:     return CGSize(width: 640, height: 450)
-        case .claudeUsage: return CGSize(width: 680, height: 470)
-        case .dailyWord:   return CGSize(width: 620, height: 450)
-        case .storage:     return CGSize(width: 640, height: 450)
-        }
-    }
 }
+
 
 /// A tab currently on screen -- a built-in, a user-configured custom tab, or an
 /// on-demand detail.

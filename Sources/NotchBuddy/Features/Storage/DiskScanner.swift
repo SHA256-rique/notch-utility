@@ -230,6 +230,7 @@ enum FileKind: String, CaseIterable, Identifiable {
 
     var displayName: String { rawValue.capitalized }
 
+    /// Saturated, for dots and bars against the dark panel.
     var color: Color {
         switch self {
         case .video:     return Color(red: 0.93, green: 0.42, blue: 0.47)
@@ -239,6 +240,25 @@ enum FileKind: String, CaseIterable, Identifiable {
         case .developer: return Color(red: 0.36, green: 0.80, blue: 0.58)
         case .archive:   return Color(red: 0.90, green: 0.57, blue: 0.33)
         case .other:     return Color(white: 0.55)
+        }
+    }
+
+    /// Pale, for treemap tiles.
+    ///
+    /// The first version drew the saturated colour at 40% opacity over a dark
+    /// panel, which composites to a muddy mid-tone: too dark for the black
+    /// label, too light to read as a colour, and almost invisible tile-to-tile.
+    /// Opaque pastels with near-black text is what every treemap that works
+    /// does -- the tile is the surface, not a tint over the background.
+    var tileColor: Color {
+        switch self {
+        case .video:     return Color(red: 0.98, green: 0.82, blue: 0.83)
+        case .audio:     return Color(red: 0.85, green: 0.82, blue: 0.97)
+        case .image:     return Color(red: 0.79, green: 0.89, blue: 0.98)
+        case .document:  return Color(red: 0.98, green: 0.92, blue: 0.76)
+        case .developer: return Color(red: 0.80, green: 0.94, blue: 0.86)
+        case .archive:   return Color(red: 0.99, green: 0.87, blue: 0.76)
+        case .other:     return Color(white: 0.88)
         }
     }
 

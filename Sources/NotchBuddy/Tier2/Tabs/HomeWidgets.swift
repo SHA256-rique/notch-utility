@@ -671,6 +671,9 @@ struct DailyWordWidget: View {
 struct DailyWordDetailView: View {
     @EnvironmentObject private var themes: ThemeManager
     @ObservedObject private var service = DailyWordService.shared
+    @State private var query = ""
+    @State private var languageFilter: WordLanguage?
+    @State private var expanded: Set<String> = []
 
     var body: some View {
         let theme = themes.theme
@@ -683,7 +686,25 @@ struct DailyWordDetailView: View {
                     Label("\(service.learnedCount) learned", systemImage: "checkmark.seal.fill")
                         .font(.system(size: 10, weight: .medium))
                         .foregroundStyle(theme.tint(.notes))
+                    Label("\(service.glossaryCount) seen", systemImage: "books.vertical.fill")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(theme.secondaryText)
                     Spacer()
+                    if !service.isShowingToday {
+                        Button("Back to today") { service.backToToday() }
+                            .buttonStyle(NBButtonStyle(tint: theme.tint(.notes), compact: true))
+                    }
+                    Button {
+                        service.previousWord()
+                    } label: { Image(systemName: "chevron.left").font(.system(size: 9, weight: .bold)) }
+                        .buttonStyle(NBButtonStyle(tint: theme.secondaryText, compact: true))
+                    Button {
+                        service.nextWord()
+                    } label: {
+                        Label("Next word", systemImage: "chevron.right")
+                            .font(.system(size: 10, weight: .medium))
+                    }
+                    .buttonStyle(NBButtonStyle(tint: theme.tint(.notes), compact: true))
                 }
 
                 ForEach(service.todaysWords) { word in
@@ -693,10 +714,129 @@ struct DailyWordDetailView: View {
                 if service.todaysWords.isEmpty {
                     NBEmptyState(symbol: "character.book.closed",
                                  title: "No languages selected",
-                                 subtitle: "Choose one or more in Settings → Word of the day.")
+                                 subtitle: "Choose one or more in Settings → Widgets → Word of the day.")
                 }
+
+                glossary(theme)
             }
             .padding(12)
+        }
+        .onAppear { service.recordToday() }
+    }
+
+    // MARK: - Glossary
+
+    /// Everything the app has ever shown, newest first.
+    ///
+    /// Entries are filed on display rather than on an explicit save, because a
+    /// glossary containing only the words someone remembered to press a button
+    /// on is a worse record of what they have seen than no glossary at all.
+    private func glossary(_ theme: Theme) -> some View {
+        let words = service.glossary(matching: query, language: languageFilter)
+        return VStack(alignment: .leading, spacing: 7) {
+            Divider().overlay(theme.panelStroke).padding(.vertical, 2)
+
+            HStack(spacing: 6) {
+                NBSectionHeader(title: "Glossary", trailing: "\(words.count)")
+                NBTextField(placeholder: "Search words or meanings…", text: $query)
+                    .frame(maxWidth: 240)
+            }
+
+            let languages = service.enabledLanguages.isEmpty
+                ? WordLanguage.allCases.filter { language in
+                    service.seen.values.contains { $0.language == language.rawValue } }
+                : service.enabledLanguages
+            if languages.count > 1 {
+                FlowRow(spacing: 5) {
+                    Button("All") { languageFilter = nil }
+                        .buttonStyle(NBButtonStyle(tint: theme.tint(.notes),
+                                                   filled: languageFilter == nil, compact: true))
+                    ForEach(languages) { language in
+                        Button(language.displayName) {
+                            languageFilter = languageFilter == language ? nil : language
+                        }
+                        .buttonStyle(NBButtonStyle(tint: theme.tint(.notes),
+                                                   filled: languageFilter == language, compact: true))
+                    }
+                }
+            }
+
+            if words.isEmpty {
+                Text(query.isEmpty
+                     ? "Words you have been shown collect here automatically."
+                     : "No matches.")
+                    .font(.system(size: 10)).foregroundStyle(theme.secondaryText)
+            }
+
+            ForEach(words) { word in
+                glossaryRow(word, theme)
+            }
+        }
+    }
+
+    private func glossaryRow(_ word: DailyWordService.SeenWord, _ theme: Theme) -> some View {
+        let isOpen = expanded.contains(word.id)
+        let full = service.entry(for: word)
+        return VStack(alignment: .leading, spacing: 5) {
+            HStack(spacing: 7) {
+                Text(word.languageValue?.code ?? "??")
+                    .font(.system(size: 8, weight: .bold))
+                    .padding(.horizontal, 4).padding(.vertical, 1)
+                    .background(Capsule().fill(theme.tint(.notes).opacity(0.2)))
+                    .foregroundStyle(theme.tint(.notes))
+
+                Text(word.term)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(theme.primaryText)
+
+                Text(word.meaning)
+                    .font(.system(size: 10))
+                    .foregroundStyle(theme.secondaryText)
+                    .lineLimit(1)
+
+                Spacer(minLength: 4)
+
+                if word.isLearned {
+                    Image(systemName: "checkmark.seal.fill")
+                        .font(.system(size: 9)).foregroundStyle(theme.tint(.notes))
+                }
+                Text(word.firstSeen.formatted(date: .abbreviated, time: .omitted))
+                    .font(.system(size: 8)).foregroundStyle(theme.secondaryText.opacity(0.8))
+
+                if let full {
+                    Button {
+                        service.speak(full)
+                    } label: { Image(systemName: "speaker.wave.2.fill").font(.system(size: 9)) }
+                        .buttonStyle(.plain).pointerCursor()
+                        .foregroundStyle(theme.secondaryText)
+                }
+            }
+
+            if isOpen, let full {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(full.example)
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(theme.primaryText)
+                    Text(full.exampleTranslation)
+                        .font(.system(size: 9))
+                        .foregroundStyle(theme.secondaryText)
+                }
+                .padding(.leading, 8)
+                .overlay(alignment: .leading) {
+                    Capsule().fill(theme.tint(.notes).opacity(0.4)).frame(width: 2)
+                }
+            }
+        }
+        .padding(.horizontal, 9).padding(.vertical, 6)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 8).fill(theme.cardBackground))
+        .contentShape(Rectangle())
+        .pointerCursor(full != nil)
+        .onTapGesture {
+            guard full != nil else { return }
+            withAnimation(Motion.tabSwitch) {
+                if isOpen { expanded.remove(word.id) } else { expanded.insert(word.id) }
+            }
         }
     }
 
