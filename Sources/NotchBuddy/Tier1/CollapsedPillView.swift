@@ -28,12 +28,22 @@ struct CollapsedPillView: View {
         let transient = arbiter.transient
         let ambient = arbiter.ambient
         let style = settings.data.transientStyle
-        let sweeping = style == .sweep ? transient : nil
-        let toasting = style == .toast ? transient : nil
 
         VStack(spacing: 0) {
             GeometryReader { geo in
-                ZStack(alignment: .leading) {
+                // Everything below hangs off this one number. See
+                // `ScreenGeometry.shoulderWidth`: the middle of this row is
+                // behind the camera housing and macOS lets nobody draw there,
+                // so a message wider than a shoulder is not clipped -- it is
+                // invisible, with no way for the user to know it existed.
+                let shoulder = ScreenGeometry.shoulderWidth(
+                    panelWidth: geo.size.width + 20, layout: ScreenGeometry.current())
+                let fitsShoulder = transient.map { Self.estimatedWidth(of: $0) <= shoulder - 10 } ?? true
+                let sweeping = (style == .sweep && fitsShoulder) ? transient : nil
+                let toasting = (style == .toast || !fitsShoulder) ? transient : nil
+
+                VStack(spacing: 0) {
+                  ZStack(alignment: .leading) {
                     // --- Base layer: the persistent claim and the ambient items.
                     HStack(spacing: 0) {
                         if let persistent {
@@ -70,7 +80,8 @@ struct CollapsedPillView: View {
                     // --- Overlay layer: a sweeping transient, right to left.
                     if let sweeping {
                         HStack(spacing: 0) {
-                            claimView(sweeping, theme: theme, emphasised: true)
+                            claimView(sweeping, theme: theme, emphasised: true,
+                                      maxTextWidth: shoulder - 46)
                                 .padding(.horizontal, 8)
                                 .padding(.vertical, 3)
                                 .background(
@@ -79,6 +90,10 @@ struct CollapsedPillView: View {
                                         .overlay(SweepHighlight(tint: theme.tint(sweeping.module)))
                                         .clipShape(Capsule())
                                 )
+                                // Hard ceiling, not just a text limit: the
+                                // capsule's own background must not reach the
+                                // cutout either.
+                                .frame(maxWidth: max(60, shoulder - 6), alignment: .leading)
                             Spacer(minLength: 0)
                         }
                         .transition(.notchSweep(distance: geo.size.width))
@@ -87,30 +102,49 @@ struct CollapsedPillView: View {
                         // animation rather than cross-fading their text in place.
                         .id(key(sweeping))
                     }
-                }
-                .frame(width: geo.size.width, height: geo.size.height)
-            }
-            .padding(.horizontal, 10)
-            .frame(height: pillHeight)
-            .background(pillShape(theme: theme))
-            .clipShape(pillClip)
+                    }
+                    .frame(width: geo.size.width, height: pillHeight)
+                    .padding(.horizontal, 10)
+                    .background(pillShape(theme: theme))
+                    .clipShape(pillClip)
 
-            // --- The toast, hanging below the notch rather than inside it.
-            if let toasting {
-                toastView(toasting, theme: theme)
-                    .transition(.toastDrop())
-                    .id(key(toasting))
-                    .padding(.top, 4)
+                    // --- The toast, hanging below the notch rather than in it.
+                    //
+                    // This is also the overflow route: a message too wide for a
+                    // shoulder lands here whichever style is selected, because
+                    // below the notch the full width of the screen is available
+                    // and nothing is behind hardware.
+                    if let toasting {
+                        toastView(toasting, theme: theme)
+                            .transition(.toastDrop())
+                            .id(key(toasting))
+                            .padding(.top, 4)
+                    }
+                }
+                .frame(width: geo.size.width, alignment: .top)
+                .animation(Motion.pillContent, value: persistent)
+                .animation(Motion.pillContent, value: ambient.count)
+                // Each style gets its own pair of curves, and the direction of
+                // travel decides which one applies.
+                .animation(sweeping == nil ? Motion.sweepOut : Motion.sweepIn, value: sweeping)
+                .animation(toasting == nil ? Motion.toastOut : Motion.toastIn, value: toasting)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .animation(Motion.pillContent, value: persistent)
-        .animation(Motion.pillContent, value: ambient.count)
-        // Each style gets its own pair of curves, and the direction of travel
-        // decides which one applies.
-        .animation(sweeping == nil ? Motion.sweepOut : Motion.sweepIn, value: sweeping)
-        .animation(toasting == nil ? Motion.toastOut : Motion.toastIn, value: toasting)
         .contentShape(Rectangle())
+    }
+
+    /// Rough width of a rendered claim, used only to decide shoulder-vs-toast.
+    ///
+    /// A real measurement would need a layout pass, a preference key and a
+    /// second render -- for a decision whose only failure mode is picking the
+    /// toast slightly too eagerly. The constants are the icon, the padding and
+    /// an average glyph advance at 11pt SF; they are deliberately generous,
+    /// because erring toward the toast costs nothing and erring the other way
+    /// hides the message.
+    nonisolated static func estimatedWidth(of claim: PillClaim) -> CGFloat {
+        let longest = max(claim.text.count, claim.detail?.count ?? 0)
+        return 46 + CGFloat(longest) * 6.4
     }
 
     private var notchWidth: CGFloat {
@@ -167,7 +201,8 @@ struct CollapsedPillView: View {
     // MARK: - Claim rendering
 
     @ViewBuilder
-    private func claimView(_ claim: PillClaim, theme: Theme, emphasised: Bool) -> some View {
+    private func claimView(_ claim: PillClaim, theme: Theme, emphasised: Bool,
+                           maxTextWidth: CGFloat? = nil) -> some View {
         let tint = theme.tint(claim.module)
         HStack(spacing: 5) {
             ZStack {
@@ -199,7 +234,10 @@ struct CollapsedPillView: View {
                         .lineLimit(1)
                 }
             }
-            .frame(maxWidth: emphasised ? 120 : 64, alignment: .leading)
+            // Measured, not a magic 120. The left shoulder on a 14" is much
+            // narrower than on a 16", and a fixed cap either wastes the wider
+            // one or overruns the narrower one into the cutout.
+            .frame(maxWidth: maxTextWidth ?? (emphasised ? 120 : 64), alignment: .leading)
             .fixedSize(horizontal: false, vertical: true)
         }
     }

@@ -35,11 +35,15 @@ struct CustomWebTab: View {
 
     var body: some View {
         Group {
-            if let url = URL(string: config.url), url.scheme?.hasPrefix("http") == true {
+            // Normalised at render time as well as at save time, so a tab
+            // created before bare domains were accepted still loads instead of
+            // showing an empty state forever.
+            if let url = URL(string: CustomTabConfig.normalisedURL(config.url)),
+               url.scheme?.hasPrefix("http") == true, url.host != nil {
                 WebViewContainer(url: url, isLoaded: $isLoaded)
             } else {
-                NBEmptyState(symbol: "globe", title: "No URL set",
-                             subtitle: "Edit this tab in Settings → Custom tabs and give it an https:// address.")
+                NBEmptyState(symbol: "globe", title: "No address set",
+                             subtitle: "Edit this tab in Settings → Tabs and give it an address. A bare domain like google.com is fine.")
             }
         }
     }

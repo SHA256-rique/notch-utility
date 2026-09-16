@@ -11,10 +11,18 @@ struct NotchRootView: View {
         ZStack(alignment: .top) {
             switch controller.state {
             case .collapsed:
-                CollapsedPillView()
-                    .transition(.asymmetric(
-                        insertion: .opacity.animation(Motion.panel.delay(0.05)),
-                        removal: .opacity.animation(.easeOut(duration: 0.12))))
+                // Two shapes for the same state. Which one is a property of the
+                // display, not of the app: see `PanelPresentation`.
+                Group {
+                    if controller.presentation == .orb {
+                        OrbView()
+                    } else {
+                        CollapsedPillView()
+                    }
+                }
+                .transition(.asymmetric(
+                    insertion: .opacity.animation(Motion.panel.delay(0.05)),
+                    removal: .opacity.animation(.easeOut(duration: 0.12))))
             case .expanded:
                 ExpandedPanelView()
                     .transition(.asymmetric(
@@ -33,7 +41,7 @@ struct NotchRootView: View {
         .onHover { controller.hoverChanged($0) }
         .onTapGesture {
             if controller.state == .collapsed {
-                controller.expand(selecting: .builtin(.home))
+                controller.expand(selecting: controller.activeTab ?? .builtin(.home))
             }
         }
     }

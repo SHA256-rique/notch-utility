@@ -78,6 +78,24 @@ struct CustomTabConfig: Codable, Identifiable, Equatable {
     var headers: [String: String] = [:]
     var shortcutPaths: [String] = []
     var snippetTagFilter: String = ""
+
+    /// Accepts what people actually type.
+    ///
+    /// `URL(string: "google.com")` succeeds and produces a URL with no scheme,
+    /// so a bare domain sailed through validation and then rendered as "No URL
+    /// set" -- the tab existed, looked fine in the dock, and was empty. Nobody
+    /// types the scheme into a browser any more and there is no reason to
+    /// demand it here.
+    static func normalisedURL(_ raw: String) -> String {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "" }
+        if let url = URL(string: trimmed), let scheme = url.scheme, !scheme.isEmpty {
+            return trimmed
+        }
+        // Leading "//" is a protocol-relative URL; anything else is a bare host.
+        if trimmed.hasPrefix("//") { return "https:" + trimmed }
+        return "https://" + trimmed
+    }
 }
 
 /// A home-grid widget the user can add, remove and drag to reorder.
@@ -145,6 +163,52 @@ enum HomeWidgetKind: String, Codable, CaseIterable, Identifiable {
         .systemRings, .soundLight, .screenTime, .revenue,
         .claudeUsage, .weather, .nowPlaying, .quickTimer, .dailyWord, .launch
     ]
+}
+
+/// Where the collapsed app lives on a given display.
+///
+/// ## Why this exists
+/// The panel hangs from the notch, and on a display without one the app used to
+/// synthesise a fake notch at top-centre: a black tab pinned under the menu bar,
+/// in a place nothing is cut out of. It works, but it is pretending — and on a
+/// 27" external monitor it puts the app in the least reachable part of a very
+/// large screen.
+///
+/// An orb is the honest alternative for those displays: a small circle the user
+/// puts where they want it, which expands into the same panel.
+enum PanelPresentation: String, Codable, CaseIterable, Identifiable {
+    /// Notch on a display that has one, orb on a display that does not.
+    case auto
+    /// Always the notch pill, including the synthesised one.
+    case notch
+    /// Always the floating orb, even on a MacBook's own display.
+    case orb
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .auto:  return "Automatic"
+        case .notch: return "Notch"
+        case .orb:   return "Floating orb"
+        }
+    }
+
+    var detail: String {
+        switch self {
+        case .auto:  return "Notch on the built-in display, orb on external monitors."
+        case .notch: return "A tab under the menu bar, even where there is no cutout."
+        case .orb:   return "A small circle you can drag anywhere."
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .auto:  return "sparkles"
+        case .notch: return "macbook"
+        case .orb:   return "circle.circle"
+        }
+    }
 }
 
 /// How a transient pop-in -- "Copied", "Conversion finished", "Bin emptied" --
@@ -237,6 +301,11 @@ struct SettingsData: Codable {
 
     // MARK: Panel behaviour
 
+    var panelPresentation: PanelPresentation = .auto
+    /// Orb position per display, keyed by display id, in that screen's own
+    /// coordinates measured from its top-left. Per-display because an orb that
+    /// jumps to a different corner when you undock is worse than no orb.
+    var orbPositions: [String: CGPoint] = [:]
     var hoverToExpand: Bool = true
     var hoverExpandDelay: Double = 0.18     // debounce so a cursor passing through does not trigger
     var hoverCollapseDelay: Double = 0.45

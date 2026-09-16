@@ -26,6 +26,10 @@ struct ExpandedPanelView: View {
             Divider().overlay(theme.panelStroke)
             tabBody
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+            // The dock lives at the bottom now. See TabDockView for why: the
+            // top of this panel is behind the camera housing, and macOS lets
+            // nobody draw there.
+            TabDockView()
         }
         .background(
             RoundedRectangle(cornerRadius: theme.cornerRadius, style: .continuous)
@@ -43,15 +47,25 @@ struct ExpandedPanelView: View {
 
     // MARK: - Header
 
+    /// The top strip, laid out **around** the camera housing rather than across
+    /// it: the title on the left shoulder, pin and close on the right, and a
+    /// reserved gap in the middle that nothing is allowed into.
+    ///
+    /// The gap is not cosmetic. On a notched MacBook the panel's top edge is at
+    /// the very top of the screen, so its horizontal centre is behind hardware.
+    /// Anything placed there is not dimmed or clipped -- it is simply not on the
+    /// screen, and the user has no way to know it exists.
     private func header(_ theme: Theme) -> some View {
         HStack(spacing: 6) {
-            TabDockView()
-            Spacer(minLength: 4)
+            Text(activeTitle)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(theme.primaryText)
+                .lineLimit(1)
 
             // Persistent claims stay reachable while a tab is open -- the brief
             // requires that every active persistent item is visible on expand,
             // not just the one winning the pill.
-            ForEach(arbiter.allPersistent.prefix(3)) { claim in
+            ForEach(arbiter.allPersistent.prefix(2)) { claim in
                 HStack(spacing: 3) {
                     Image(systemName: claim.symbol).font(.system(size: 8, weight: .bold))
                     Text(claim.text).font(.system(size: 9, weight: .semibold)).monospacedDigit()
@@ -63,6 +77,12 @@ struct ExpandedPanelView: View {
                 .onTapGesture { controller.openTab(.builtin(.time)) }
                 .help(claim.detail ?? claim.text)
             }
+
+            // The reserved centre. `notchGap` is measured, not guessed, so it
+            // is correct on a 14", a 16" and an external display alike.
+            Spacer(minLength: 8)
+            Color.clear.frame(width: notchGap, height: 1)
+            Spacer(minLength: 8)
 
             Button {
                 controller.togglePin()
@@ -88,6 +108,27 @@ struct ExpandedPanelView: View {
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 7)
+    }
+
+    /// Width to keep clear in the middle of the header. Zero when the panel is
+    /// not hanging off a physical notch, because then there is nothing to avoid
+    /// and a hole in the middle of the strip would just be a hole.
+    private var notchGap: CGFloat {
+        let layout = ScreenGeometry.current()
+        guard layout.hasPhysicalNotch, controller.presentation == .notch else { return 0 }
+        // A little wider than the cutout: the housing has a rounded skirt, and
+        // text that ends exactly at its edge still reads as cut off.
+        return layout.notchRect.width + 16
+    }
+
+    private var activeTitle: String {
+        switch controller.activeTab {
+        case .builtin(let id):    return id.title
+        case .detail(let detail): return detail.title
+        case .custom(let uuid):
+            return settings.data.customTabs.first { $0.id == uuid }?.title ?? "Tab"
+        case .none:               return "Home"
+        }
     }
 
     // MARK: - Body
@@ -131,7 +172,6 @@ struct ExpandedPanelView: View {
         case .calendar: CalendarTabView()
         case .files:    FilesTabView()
         case .api:      APITesterTabView()
-        case .docker:   DockerTabView()
         case .terminal: TerminalTabView()
         case .ai:       AIChatTabView()
         case .message:  MessageTabView()

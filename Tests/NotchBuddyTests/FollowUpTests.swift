@@ -641,6 +641,14 @@ struct TabDockTests {
     /// and then stop. The rule for which a thing should be -- would you be
     /// annoyed to find it gone tomorrow, or annoyed to find it still there --
     /// puts it on the detail side.
+    /// Docker was removed: a container list is a once-a-week glance and it was
+    /// holding a permanent dock slot for that.
+    @Test("Docker is no longer a tab")
+    func dockerIsGone() {
+        #expect(!TabID.allCases.map(\.rawValue).contains("docker"))
+        #expect(!TabID.defaultOrder.contains("docker"))
+    }
+
     @Test("Screen Time is a detail tab, not a permanent one")
     func screenTimeIsADetail() {
         #expect(DetailTab.allCases.contains(.screenTime))
@@ -903,5 +911,141 @@ struct PanelSizingTests {
     func twoPanelIsWider() {
         #expect(TabID.snippets.preferredSize.width > TabID.notes.preferredSize.width)
         #expect(TabID.snippets.preferredSize.width > TabID.message.preferredSize.width)
+    }
+}
+
+
+// MARK: - URLs, shoulders and presentation
+
+@Suite("Custom tab URLs")
+struct CustomTabURLTests {
+
+    /// The bug this fixes: `URL(string: "google.com")` succeeds and yields a URL
+    /// with no scheme, so a bare domain passed validation and then rendered as
+    /// an empty state. The tab existed, looked right in the dock, and was blank.
+    @Test("A bare domain gets a scheme")
+    func bareDomain() {
+        #expect(CustomTabConfig.normalisedURL("google.com") == "https://google.com")
+        #expect(CustomTabConfig.normalisedURL("  google.com  ") == "https://google.com")
+        #expect(CustomTabConfig.normalisedURL("example.com/path?q=1") == "https://example.com/path?q=1")
+    }
+
+    @Test("An explicit scheme is left alone")
+    func explicitScheme() {
+        #expect(CustomTabConfig.normalisedURL("https://google.com") == "https://google.com")
+        #expect(CustomTabConfig.normalisedURL("http://localhost:3000") == "http://localhost:3000")
+    }
+
+    @Test("A protocol-relative URL becomes https")
+    func protocolRelative() {
+        #expect(CustomTabConfig.normalisedURL("//cdn.example.com") == "https://cdn.example.com")
+    }
+
+    @Test("Empty stays empty")
+    func empty() {
+        #expect(CustomTabConfig.normalisedURL("") == "")
+        #expect(CustomTabConfig.normalisedURL("   ") == "")
+    }
+
+    @Test("The result is something URL can parse with a host")
+    func parses() {
+        for raw in ["google.com", "https://example.org", "//cdn.example.com", "sub.domain.co.uk/x"] {
+            let url = URL(string: CustomTabConfig.normalisedURL(raw))
+            #expect(url?.host != nil, "\(raw) did not produce a host")
+            #expect(url?.scheme?.hasPrefix("http") == true)
+        }
+    }
+}
+
+@Suite("Notch shoulders")
+struct ShoulderTests {
+
+    private func layout(notch: CGFloat, hasNotch: Bool = true) -> ScreenGeometry.Layout {
+        ScreenGeometry.Layout(
+            screen: NSScreen.screens.first!,
+            notchRect: CGRect(x: 0, y: 0, width: notch, height: 32),
+            hasPhysicalNotch: hasNotch)
+    }
+
+    /// The number that decides whether a message can live in the notch row at
+    /// all. Content wider than a shoulder is not clipped -- macOS reserves the
+    /// cutout, so it is simply not on screen.
+    @Test("A shoulder is half of what the cutout leaves")
+    func shoulderMath() {
+        #expect(ScreenGeometry.shoulderWidth(panelWidth: 600, layout: layout(notch: 200)) == 200)
+        #expect(ScreenGeometry.shoulderWidth(panelWidth: 400, layout: layout(notch: 200)) == 100)
+    }
+
+    @Test("A panel narrower than the cutout has no shoulders")
+    func noShoulders() {
+        #expect(ScreenGeometry.shoulderWidth(panelWidth: 150, layout: layout(notch: 200)) == 0)
+    }
+
+    /// On a display with no cutout there is nothing to route around, so the
+    /// whole half-width is usable and messages never overflow to the toast.
+    @Test("A notchless display has the full half-width")
+    func notchless() {
+        #expect(ScreenGeometry.shoulderWidth(panelWidth: 600,
+                                             layout: layout(notch: 200, hasNotch: false)) == 300)
+    }
+
+    /// Long messages must route to the toast row below the notch, where the
+    /// full width of the screen is available.
+    @Test("A long message is estimated too wide for a shoulder")
+    func longMessageOverflows() {
+        let short = PillClaim(id: "t", priority: .transient, module: .snippets,
+                              symbol: "doc", text: "Copied", detail: nil,
+                              rank: 0, expiresAt: nil, progress: nil)
+        let long = PillClaim(id: "t", priority: .transient, module: .snippets,
+                             symbol: "doc", text: "Copied",
+                             detail: "140 chars from a very long clipboard entry",
+                             rank: 0, expiresAt: nil, progress: nil)
+        let shoulder = ScreenGeometry.shoulderWidth(panelWidth: 460, layout: layout(notch: 200))
+        #expect(CollapsedPillView.estimatedWidth(of: short) <= shoulder - 10)
+        #expect(CollapsedPillView.estimatedWidth(of: long) > shoulder - 10)
+    }
+}
+
+@Suite("Panel presentation")
+struct PresentationTests {
+
+    @Test("Automatic is the default")
+    func defaultIsAuto() {
+        #expect(SettingsData().panelPresentation == .auto)
+    }
+
+    @Test("Every mode is described")
+    func modesAreWellFormed() {
+        let raws = PanelPresentation.allCases.map(\.rawValue)
+        #expect(Set(raws).count == raws.count)
+        for mode in PanelPresentation.allCases {
+            #expect(!mode.displayName.isEmpty)
+            #expect(!mode.detail.isEmpty)
+            #expect(!mode.symbol.isEmpty)
+        }
+    }
+
+    /// Orb positions are per display. Two identical monitors must not share one
+    /// slot, which is why the key is the display id and not the localized name.
+    @Test("Orb positions are stored per display")
+    func orbPositionsAreKeyed() {
+        var data = SettingsData()
+        data.orbPositions["display.1"] = CGPoint(x: 100, y: 200)
+        data.orbPositions["display.2"] = CGPoint(x: 900, y: 40)
+        #expect(data.orbPositions.count == 2)
+        #expect(data.orbPositions["display.1"]?.x == 100)
+    }
+
+    /// Settings round-trip through JSON on every write; a CGPoint dictionary
+    /// that fails to encode would take the whole settings file down with it.
+    @Test("Orb positions survive a settings round-trip")
+    func orbPositionsRoundTrip() throws {
+        var data = SettingsData()
+        data.orbPositions["display.1"] = CGPoint(x: 12.5, y: 34.25)
+        data.panelPresentation = .orb
+        let encoded = try JSONEncoder().encode(data)
+        let decoded = try JSONDecoder().decode(SettingsData.self, from: encoded)
+        #expect(decoded.panelPresentation == .orb)
+        #expect(decoded.orbPositions["display.1"] == CGPoint(x: 12.5, y: 34.25))
     }
 }

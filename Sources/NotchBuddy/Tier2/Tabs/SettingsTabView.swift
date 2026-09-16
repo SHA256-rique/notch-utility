@@ -65,6 +65,44 @@ struct GeneralSettings: View {
         Text("Themes only restyle NotchBuddy's own windows. Nothing here touches system appearance.")
             .font(.system(size: 9)).foregroundStyle(theme.secondaryText)
 
+        NBSectionHeader(title: "Where the app lives")
+        HStack(spacing: 6) {
+            ForEach(PanelPresentation.allCases) { mode in
+                Button {
+                    settings.data.panelPresentation = mode
+                    NotchPanelController.shared.presentationChanged()
+                } label: {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Label(mode.displayName, systemImage: mode.symbol)
+                            .font(.system(size: 11, weight: .medium))
+                        Text(mode.detail)
+                            .font(.system(size: 9)).opacity(0.75)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .buttonStyle(NBButtonStyle(tint: theme.accent,
+                                           filled: settings.data.panelPresentation == mode))
+            }
+        }
+        Text("An external monitor has no cutout to hang from, so the notch presentation there is a black tab pretending there is one — in the least reachable corner of a large screen. The orb is a small circle you drag wherever you want it; its position is remembered per display.")
+            .font(.system(size: 9)).foregroundStyle(theme.secondaryText)
+            .fixedSize(horizontal: false, vertical: true)
+        HStack {
+            Text(NotchPanelController.shared.presentation == .orb
+                 ? "Currently showing an orb on this display."
+                 : "Currently showing the notch on this display.")
+                .font(.system(size: 9, weight: .medium))
+                .foregroundStyle(theme.accent)
+            Spacer()
+            if NotchPanelController.shared.presentation == .orb {
+                Button("Reset orb position") {
+                    NotchPanelController.shared.resetOrbPosition()
+                }
+                .buttonStyle(NBButtonStyle(tint: theme.secondaryText, compact: true))
+            }
+        }
+
         NBSectionHeader(title: "Panel")
         toggle("Expand when I hover the notch", $settings.data.hoverToExpand, theme)
         HStack(spacing: 10) {
@@ -380,7 +418,7 @@ struct TabsSettings: View {
                 }
                 switch newKind {
                 case .webView:
-                    NBTextField(placeholder: "https://…", text: $newURL, monospaced: true)
+                    NBTextField(placeholder: "google.com", text: $newURL, monospaced: true)
                 case .metric:
                     NBTextField(placeholder: "https://api.example.com/stats", text: $newURL, monospaced: true)
                     NBTextField(placeholder: "JSON path, e.g. data.today.total", text: $newPath, monospaced: true)
@@ -395,7 +433,7 @@ struct TabsSettings: View {
                     Button("Add tab") {
                         guard !newTitle.isEmpty else { return }
                         var config = CustomTabConfig(kind: newKind, title: newTitle, symbol: newKind.symbol)
-                        config.url = newURL
+                        config.url = CustomTabConfig.normalisedURL(newURL)
                         config.jsonPath = newPath
                         config.snippetTagFilter = newTag
                         settings.data.customTabs.append(config)
@@ -554,8 +592,6 @@ struct AboutSettings: View {
         capability("Brightness control", ok: SoundLightController.shared.brightnessAvailable, theme,
                    note: SoundLightController.shared.brightnessAvailable ? nil
                         : "No writable brightness parameter on this display.")
-        capability("Docker socket", ok: DockerClient.isAvailable, theme,
-                   note: DockerClient.isAvailable ? DockerClient.socketPath() : "No daemon socket found.")
         capability("Accessibility (selection assist)", ok: SelectionWatcher.hasAccessibilityPermission, theme)
         capability("Approval hook socket", ok: ApprovalHookServer.shared.isRunning, theme,
                    note: ApprovalHookServer.shared.socketURL.path)

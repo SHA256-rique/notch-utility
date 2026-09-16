@@ -4,7 +4,7 @@ import SwiftUI
 /// persisted to JSON, and a raw-value string survives reordering and removal of
 /// cases in a way an Int would not.
 enum TabID: String, Codable, CaseIterable, Identifiable, Hashable {
-    case home, time, snippets, notes, calendar, files, api, docker, terminal, ai, message, settings
+    case home, time, snippets, notes, calendar, files, api, terminal, ai, message, settings
     var id: String { rawValue }
 
     static let defaultOrder: [String] = TabID.allCases.map(\.rawValue)
@@ -18,7 +18,6 @@ enum TabID: String, Codable, CaseIterable, Identifiable, Hashable {
         case .calendar: return "Calendar"
         case .files: return "Files"
         case .api: return "API"
-        case .docker: return "Docker"
         case .terminal: return "Terminal"
         case .ai: return "AI Chat"
         case .message: return "Message"
@@ -35,7 +34,6 @@ enum TabID: String, Codable, CaseIterable, Identifiable, Hashable {
         case .calendar: return "calendar"
         case .files: return "arrow.triangle.2.circlepath.doc.on.clipboard"
         case .api: return "network"
-        case .docker: return "shippingbox.fill"
         case .terminal: return "terminal.fill"
         case .ai: return "sparkles"
         case .message: return "text.bubble.fill"
@@ -52,7 +50,6 @@ enum TabID: String, Codable, CaseIterable, Identifiable, Hashable {
         case .calendar: return .calendar
         case .files: return .files
         case .api: return .api
-        case .docker: return .docker
         case .terminal: return .terminal
         case .ai: return .ai
         case .message: return .message
@@ -83,7 +80,6 @@ enum TabID: String, Codable, CaseIterable, Identifiable, Hashable {
         case .calendar: return CGSize(width: 650, height: 470)   // month grid plus a day list
         case .files:    return CGSize(width: 660, height: 440)
         case .api:      return CGSize(width: 720, height: 480)   // request above, response below
-        case .docker:   return CGSize(width: 660, height: 400)
         case .terminal: return CGSize(width: 820, height: 510)   // columns matter here more than anywhere
         case .ai:       return CGSize(width: 680, height: 480)
         case .message:  return CGSize(width: 620, height: 400)

@@ -48,10 +48,17 @@ struct SnippetsTabView: View {
         VStack(spacing: 8) {
             HStack(spacing: 6) {
                 NBTextField(placeholder: "Search snippets…", text: $query)
+                    .layoutPriority(1)
                 Picker("", selection: $filter) {
                     ForEach(Filter.allCases) { Text($0.rawValue).tag($0) }
                 }
-                .pickerStyle(.segmented).labelsHidden().frame(width: showTasks ? 180 : 220)
+                // `fixedSize` rather than a hardcoded width. Four segments of
+                // localised text do not fit in 180pt, and a segmented control
+                // given less room than it needs does not shrink -- it draws its
+                // last segment straight over whatever comes next, which is how
+                // "Pinned" ended up underneath the + button.
+                .pickerStyle(.segmented).labelsHidden()
+                .fixedSize()
                 Button {
                     withAnimation(Motion.sheet) {
                         isComposing.toggle()

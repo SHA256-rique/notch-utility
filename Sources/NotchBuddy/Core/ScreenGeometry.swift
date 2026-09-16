@@ -63,6 +63,22 @@ enum ScreenGeometry {
         NSScreen.screens.first { $0.safeAreaInsets.top > 0 }
     }
 
+    /// How much usable width there is either side of the cutout, for a panel of
+    /// the given width.
+    ///
+    /// This is the number that decides whether a message can be shown *in* the
+    /// notch row at all. macOS reserves the cutout rectangle -- no application
+    /// can draw into it, which is why every app in this category lays out
+    /// around the housing rather than under it -- so content wider than a
+    /// shoulder is not clipped or dimmed, it is simply not on the screen.
+    ///
+    /// Returns zero on a display with no physical notch, where the whole width
+    /// is usable and the question does not arise.
+    static func shoulderWidth(panelWidth: CGFloat, layout: Layout) -> CGFloat {
+        guard layout.hasPhysicalNotch else { return panelWidth / 2 }
+        return max(0, (panelWidth - layout.notchRect.width) / 2)
+    }
+
     /// Frame for the panel at a given content size, centred on the notch.
     ///
     /// The panel's top edge is pinned to the very top of the screen (not below

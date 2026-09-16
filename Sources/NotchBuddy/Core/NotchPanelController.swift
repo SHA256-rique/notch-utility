@@ -27,6 +27,92 @@ final class NotchPanelController: NSObject, ObservableObject {
     @Published private(set) var openDetails: [DetailTab] = []
     @Published private(set) var isHovering = false
 
+    // MARK: - Presentation
+
+    /// Notch or orb, resolved for the display the panel is currently on.
+    ///
+    /// `auto` is the default and means "notch where there is one, orb where
+    /// there is not" -- which is the honest reading of both. The explicit modes
+    /// exist because someone may genuinely prefer an orb on their MacBook, or a
+    /// menu-bar tab on an external display.
+    var presentation: PanelPresentation {
+        switch Settings.shared.data.panelPresentation {
+        case .auto:  return layout.hasPhysicalNotch ? .notch : .orb
+        case .notch: return .notch
+        case .orb:   return .orb
+        }
+    }
+
+    /// A stable per-display key for remembering where the orb was put.
+    /// `displayID` rather than the localized name, because two identical
+    /// monitors share a name and would fight over one stored position.
+    private var screenKey: String {
+        let number = layout.screen.deviceDescription[
+            NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber
+        return number.map { "display.\($0.uint32Value)" } ?? "display.unknown"
+    }
+
+    /// Orb origin in screen coordinates, defaulting to the top-right area --
+    /// near the menu bar, where the app used to live, but out of the way of
+    /// window controls on the left.
+    private var orbOrigin: CGPoint {
+        get {
+            if let stored = Settings.shared.data.orbPositions[screenKey] {
+                return clampOrb(stored)
+            }
+            let frame = layout.screen.visibleFrame
+            return clampOrb(CGPoint(x: frame.maxX - OrbView.diameter - 24,
+                                    y: frame.maxY - OrbView.diameter - 12))
+        }
+        set { Settings.shared.data.orbPositions[screenKey] = clampOrb(newValue) }
+    }
+
+    /// Keeps the orb fully on screen. Without this, undocking a monitor or
+    /// changing resolution can strand it off the edge with no way to get it
+    /// back short of editing the settings file.
+    private func clampOrb(_ point: CGPoint) -> CGPoint {
+        let frame = layout.screen.visibleFrame
+        return CGPoint(
+            x: min(max(point.x, frame.minX), frame.maxX - OrbView.diameter),
+            y: min(max(point.y, frame.minY), frame.maxY - OrbView.diameter))
+    }
+
+    /// Live drag target, so the window can follow the cursor without a settings
+    /// write per frame.
+    private var orbDragOrigin: CGPoint?
+
+    func moveOrb(by delta: CGSize) {
+        guard presentation == .orb, state == .collapsed else { return }
+        let current = orbDragOrigin ?? orbOrigin
+        // AppKit's y axis points up and the gesture's points down.
+        let moved = clampOrb(CGPoint(x: current.x + delta.width,
+                                     y: current.y - delta.height))
+        orbDragOrigin = moved
+        panel.setFrameOrigin(moved)
+    }
+
+    /// Re-lays-out after the presentation setting changes. Collapses first: a
+    /// pill morphing into an orb mid-expansion has no sensible animation, and
+    /// the collapsed state is the one both presentations agree on.
+    func presentationChanged() {
+        objectWillChange.send()
+        if state == .expanded { collapse() } else { applyFrame(collapsedSize, animated: true) }
+    }
+
+    /// Puts the orb back in its default corner, for when it has been dragged
+    /// somewhere awkward or a display change has left it stranded.
+    func resetOrbPosition() {
+        Settings.shared.data.orbPositions.removeValue(forKey: screenKey)
+        orbDragOrigin = nil
+        applyFrame(collapsedSize, animated: true)
+    }
+
+    func commitOrbPosition() {
+        guard let dragged = orbDragOrigin else { return }
+        orbDragOrigin = nil
+        orbOrigin = dragged
+    }
+
     // MARK: - Geometry
 
     /// Resting pill: just wider than the physical notch so its rounded corners
@@ -39,6 +125,15 @@ final class NotchPanelController: NSObject, ObservableObject {
     /// sized to its text and a clipped toast is worse than a wide window that
     /// is mostly transparent and click-through anyway.
     private var collapsedSize: CGSize {
+        if presentation == .orb {
+            // An orb has no shoulders to put a message on, so a transient hangs
+            // below it and the window grows to make room. Without this the
+            // 46pt window clips the toast to nothing and the orb silently
+            // swallows every confirmation the app makes.
+            let toasting = arbiter.transient != nil
+            return CGSize(width: OrbView.diameter + (toasting ? 240 : 0),
+                          height: OrbView.diameter + (toasting ? 44 : 0))
+        }
         let notchWidth = layout.hasPhysicalNotch ? layout.notchRect.width : 200
         let pillHeight = max(layout.notchRect.height, 32) + (arbiter.hasUrgentContent ? 6 : 0)
         let toasting = arbiter.transient != nil && Settings.shared.data.transientStyle == .toast
@@ -303,11 +398,40 @@ final class NotchPanelController: NSObject, ObservableObject {
     /// as the content needs, and the visible motion is entirely the spring.
     private func applyFrame(_ size: CGSize, animated: Bool) {
         layout = ScreenGeometry.current()
-        let frame = ScreenGeometry.panelFrame(for: size, layout: layout)
+        let frame = presentation == .orb
+            ? orbAnchoredFrame(for: size)
+            : ScreenGeometry.panelFrame(for: size, layout: layout)
         panel.setFrame(frame, display: false, animate: false)
         if let hosting = panel.contentView {
             hosting.frame = CGRect(origin: .zero, size: frame.size)
         }
+    }
+
+    /// Where the panel sits in orb mode.
+    ///
+    /// Collapsed, it is exactly the orb at its stored position. Expanded, it
+    /// hangs from the orb -- below it if there is room, above it if there is
+    /// not -- and is clamped to the screen so it can never open half off the
+    /// edge just because the user parked the orb in a corner.
+    private func orbAnchoredFrame(for size: CGSize) -> CGRect {
+        let origin = orbDragOrigin ?? orbOrigin
+        // Collapsed, including the taller shape used while a toast is showing.
+        // The orb must stay put at `origin` while the window grows downward,
+        // so the window's bottom edge moves and its top edge does not.
+        if size.width <= OrbView.diameter + 240 && size.height <= OrbView.diameter + 44 {
+            return CGRect(x: origin.x,
+                          y: origin.y - (size.height - OrbView.diameter),
+                          width: size.width, height: size.height)
+        }
+        let visible = layout.screen.visibleFrame
+        let centredX = origin.x + OrbView.diameter / 2 - size.width / 2
+        let x = min(max(centredX, visible.minX + 8), visible.maxX - size.width - 8)
+
+        let below = origin.y - size.height - 8
+        let above = origin.y + OrbView.diameter + 8
+        let y = below >= visible.minY + 8 ? below
+              : min(above, visible.maxY - size.height - 8)
+        return CGRect(x: x.rounded(), y: y.rounded(), width: size.width, height: size.height)
     }
 
     /// The pill's resting width depends on whether anything holds the notch, so

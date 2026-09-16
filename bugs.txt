@@ -3,3 +3,41 @@
 3. for the part i mentioned that moving the notification text from right to left , we can also have a normal prompt notification and quickly fade away with animation like we have in smartphones
 
 make it more aesthetic , if something doesn't need full page , merge with others and if it needs to expand , open it up like a new tab like we do in vscode and then user can remove the tab to exit
+
+
+------
+
+16/09
+                            new task? /clear to save 447.1k tokens
+────────────────────────────────────────────────────────────────────
+❯ symbol
+     '/Users/shams/Desktop/Screenshot 2026-09-16 at 6.14.52 AM.png'
+  '/Users/shams/Desktop/Screenshot 2026-09-16 at 6.14.17 AM.png'
+  '/Users/shams/Desktop/Screenshot 2026-09-16 at 6.11.52 AM.png'
+
+  in these images firstly the tab changing lies on top so some
+  part of it is always hidden by notch , so i guess it would be
+  better to change the positioning to bottom with center alignment
+  and you know magnify the icon as the mouse hovers over them
+
+  in the clipboard section the pinned tab overlaps with the +
+  symbol
+  also what if i have connected mac to external monitor, would it
+  still show a black notch on top ? i think it would be better if
+  it could simply have option of toggling between notch and a
+  movable circular icon for monitors
+
+  also the docker container uses a full tab , i dont want it to
+  use a full tab , maybe remove this tab
+
+  i am not able to see custom tab created ? i hit the url as
+  google.com
+
+  also the copied 140chars and stuff gets hidden by notch , search
+  web on how other such apps are tackling it before attempting a
+  fix
+  also can you add another tab like diskbuddy that can maybe help
+  you map out the storage used in the mac like tabs and then maybe
+  help you directly clean it ? maybe it could categorize the diff
+  folder and files taking space into groups something like [Image
+  #5] [Image #6]

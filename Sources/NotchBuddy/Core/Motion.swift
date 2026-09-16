@@ -41,6 +41,11 @@ enum Motion {
 
     /// Sheets/popovers within the panel.
     static let sheet = Animation.spring(response: 0.34, dampingFraction: 0.85)
+
+    /// Dock magnification. Very short response and near-critical damping: the
+    /// icons must track the cursor, and any overshoot here reads as the whole
+    /// dock wobbling because several items are animating out of phase at once.
+    static let dockMagnify = Animation.interactiveSpring(response: 0.14, dampingFraction: 0.92)
 }
 
 // MARK: - Shared view furniture
