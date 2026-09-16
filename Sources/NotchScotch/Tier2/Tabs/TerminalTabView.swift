@@ -56,7 +56,31 @@ struct TerminalTabView: View {
             }
 
             GeometryReader { geo in
-                paneLayout(in: geo.size, theme: theme)
+                ZStack(alignment: .topLeading) {
+                    paneLayout(in: geo.size, theme: theme)
+
+                    // ONE key catcher for the tab, pointed at whichever pane has
+                    // focus -- not one per pane.
+                    //
+                    // The per-pane version is why typing did not work in a
+                    // split. Changing focus destroyed one catcher and created
+                    // another, and SwiftUI gives no ordering guarantee between
+                    // the two: the outgoing view frequently resigned first
+                    // responder *after* the incoming one claimed it, leaving the
+                    // window with no responder at all. The single catcher never
+                    // moves, so there is no handover to lose.
+                    TerminalKeyCatcher(
+                        session: workspace.focusedPane,
+                        selectedText: { workspace.focusedSelectionText() },
+                        onScroll: {
+                            workspace.focusedPane.emulator.scroll(by: $0)
+                            workspace.focusedPane.bumpGeneration()
+                        },
+                        onFocusChange: { _ in },
+                        onFontStep: { fontSize = min(20, max(9, fontSize + Double($0))) })
+                        .frame(width: 0, height: 0)
+                        .allowsHitTesting(false)
+                }
                     .onAppear {
                         workspace.startAll { paneMetrics(index: $0, in: geo.size).grid }
                         OwnedPTYDetector.shared.attach(to: workspace.focusedPane)
@@ -175,10 +199,9 @@ struct TerminalTabView: View {
         let split = workspace.panes.count > 1
         return VStack(spacing: 0) {
             paneTitleBar(pane, index: index, isFocused: isFocused, theme: theme)
-            TerminalPaneBody(pane: pane, font: font, cellSize: cellSize,
+            TerminalPaneBody(workspace: workspace, pane: pane, font: font, cellSize: cellSize,
                              gutter: gutter, isFocused: isFocused, cursorOn: cursorOn,
-                             onFocus: { workspace.focused = index },
-                             onFontStep: { fontSize = min(20, max(9, fontSize + Double($0))) })
+                             onFocus: { workspace.focused = index })
         }
         .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
         .overlay(
@@ -327,6 +350,7 @@ struct TerminalTabView: View {
 /// would have highlighted the same cells in all four.
 struct TerminalPaneBody: View {
     @EnvironmentObject private var themes: ThemeManager
+    @ObservedObject var workspace: TerminalWorkspace
     @ObservedObject var pane: TerminalSession
     let font: NSFont
     let cellSize: CGSize
@@ -334,9 +358,13 @@ struct TerminalPaneBody: View {
     let isFocused: Bool
     let cursorOn: Bool
     let onFocus: () -> Void
-    let onFontStep: (Int) -> Void
 
-    @State private var selection: TerminalSelection?
+    /// Selection lives in the workspace, not here.
+    ///
+    /// The tab mounts one key catcher for all panes (see `TerminalTabView`), and
+    /// cmd-C in that catcher has to read the *focused* pane's selection. Per-pane
+    /// `@State` was invisible to it.
+    private var selection: TerminalSelection? { workspace.selection(for: pane) }
 
     var body: some View {
         let theme = themes.theme
@@ -348,24 +376,14 @@ struct TerminalPaneBody: View {
                            startPoint: .top, endPoint: .bottom)
 
             TerminalGridView(session: pane, font: font, cellSize: cellSize,
-                             selection: $selection,
+                             selection: Binding(
+                                get: { workspace.selection(for: pane) },
+                                set: { workspace.setSelection($0, for: pane) }),
                              cursorOn: cursorOn, isFocused: isFocused)
                 .padding(.leading, gutter.width)
                 .padding(.top, gutter.height)
                 .contentShape(Rectangle())
                 .gesture(selectionGesture)
-
-            // Only the focused pane takes keystrokes. Four key catchers fighting
-            // over first responder is a pane that silently stops accepting input.
-            if isFocused {
-                TerminalKeyCatcher(
-                    session: pane,
-                    selectedText: { selectedText() },
-                    onScroll: { pane.emulator.scroll(by: $0); pane.bumpGeneration() },
-                    onFocusChange: { if $0 { onFocus() } },
-                    onFontStep: onFontStep)
-                    .frame(width: 0, height: 0)
-            }
 
             if pane.emulator.isScrolledBack {
                 VStack {
@@ -402,11 +420,13 @@ struct TerminalPaneBody: View {
         DragGesture(minimumDistance: 2)
             .onChanged { value in
                 onFocus()
-                selection = TerminalSelection(anchor: position(at: value.startLocation),
-                                              head: position(at: value.location))
+                workspace.setSelection(
+                    TerminalSelection(anchor: position(at: value.startLocation),
+                                      head: position(at: value.location)),
+                    for: pane)
             }
             .simultaneously(with: TapGesture().onEnded {
-                selection = nil
+                workspace.setSelection(nil, for: pane)
                 onFocus()
             })
     }
@@ -418,11 +438,5 @@ struct TerminalPaneBody: View {
         return TerminalEmulator.Position(
             line: max(0, emulator.firstVisibleLineIndex + max(0, min(emulator.rows - 1, row))),
             column: max(0, min(emulator.columns - 1, column)))
-    }
-
-    private func selectedText() -> String? {
-        guard let selection, !selection.isEmpty else { return nil }
-        let text = pane.emulator.text(from: selection.start, to: selection.end)
-        return text.isEmpty ? nil : text
     }
 }

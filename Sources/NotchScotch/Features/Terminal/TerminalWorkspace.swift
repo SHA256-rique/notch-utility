@@ -82,6 +82,30 @@ final class TerminalWorkspace: ObservableObject {
     /// Index into `panes`. Keystrokes and the approval detector follow it.
     @Published var focused: Int = 0
 
+    /// Text selection per pane, keyed by session id.
+    ///
+    /// Lifted out of the pane view because the tab now mounts a **single** key
+    /// catcher rather than one per pane -- see `TerminalTabView` -- and that
+    /// catcher has to be able to read the focused pane's selection for cmd-C.
+    /// Per-pane `@State` was unreachable from there.
+    @Published var selections: [UUID: TerminalSelection] = [:]
+
+    func selection(for pane: TerminalSession) -> TerminalSelection? {
+        selections[pane.id]
+    }
+
+    func setSelection(_ selection: TerminalSelection?, for pane: TerminalSession) {
+        if let selection { selections[pane.id] = selection } else { selections[pane.id] = nil }
+    }
+
+    /// Selected text in the focused pane, or nil.
+    func focusedSelectionText() -> String? {
+        let pane = focusedPane
+        guard let selection = selections[pane.id], !selection.isEmpty else { return nil }
+        let text = pane.emulator.text(from: selection.start, to: selection.end)
+        return text.isEmpty ? nil : text
+    }
+
     static let maxPanes = 4
 
     private init() {}
@@ -112,6 +136,7 @@ final class TerminalWorkspace: ObservableObject {
         }
         while panes.count > wanted {
             let removed = panes.removeLast()
+            selections[removed.id] = nil
             removed.forceStop()
         }
         layout = new
@@ -122,6 +147,7 @@ final class TerminalWorkspace: ObservableObject {
     /// showing nothing would be worse than the shell it replaced.
     func closePane(at index: Int) {
         guard panes.count > 1, panes.indices.contains(index) else { return }
+        selections[panes[index].id] = nil
         panes[index].forceStop()
         panes.remove(at: index)
         layout = Self.layout(forPaneCount: panes.count, preferring: layout)
@@ -205,24 +231,31 @@ final class TerminalWorkspace: ObservableObject {
         }
     }
 
-    /// Opens the focused pane's directory in a real terminal app.
+    /// Opens the focused pane in a real terminal app, carrying its context.
     ///
-    /// ## What "copy the context over" can and cannot mean
-    /// The **working directory** transfers exactly: it comes from the kernel and
-    /// the new terminal opens there, which is the part of the context people
-    /// actually mean.
+    /// ## What actually transfers
+    /// **The working directory**, exactly, from `proc_pidinfo` -- the kernel's
+    /// answer for the shell's cwd, rather than parsing a user-configurable
+    /// prompt or shipping a zshrc hook.
     ///
-    /// The **scrollback** goes to the clipboard rather than being typed into the
-    /// new window. Terminal.app and iTerm2 both expose an AppleScript `do
-    /// script`, and it would be easy to shove the transcript through it -- but
-    /// `do script` *executes* what it is given. Replaying a build log through a
-    /// shell is a remote code execution bug with extra steps, triggered by
-    /// whatever happened to be in the output. The clipboard is one keystroke
-    /// away and cannot run anything.
+    /// **The scrollback**, printed into the new window. This is the part that
+    /// took care to do safely.
     ///
-    /// The **running process** does not transfer at all, and nothing can make it:
-    /// a process is attached to its controlling terminal, and moving it would
-    /// mean reparenting it onto a pty owned by another application.
+    /// Terminal and iTerm2 both expose AppleScript `do script`, which *runs*
+    /// what it is given. Handing it a build log is remote code execution
+    /// triggered by whatever happened to be in the output -- a stray line
+    /// beginning `rm` would simply run. So the transcript is written to a temp
+    /// file and the command we build is `cd <dir> && cat <file>`: the only
+    /// strings we execute are ones this function constructed, and the
+    /// transcript is *displayed* rather than interpreted.
+    ///
+    /// **The running process does not transfer**, and nothing can make it. A
+    /// process is attached to its controlling terminal; moving it would mean
+    /// reparenting it onto a pty owned by another application.
+    ///
+    /// Apps without AppleScript support (Ghostty, Kitty, Alacritty, WezTerm)
+    /// get the directory and the clipboard, which is as far as their public
+    /// interface goes.
     @discardableResult
     func handOffToExternalTerminal() -> Bool {
         let pane = focusedPane
@@ -235,12 +268,26 @@ final class TerminalWorkspace: ObservableObject {
             return false
         }
 
-        let transcript = pane.transcript(lastLines: 400)
+        let transcript = pane.transcript(lastLines: 500)
             .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // The clipboard is populated regardless: it is the one route that works
+        // in every terminal, and it costs nothing to have both.
         if !transcript.isEmpty {
             ClipboardWatcher.shared.suppressNextChange()
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(transcript, forType: .string)
+        }
+
+        if Self.supportsScripting(bundleID) {
+            let name = TerminalWorkspace.knownTerminals.first { $0.bundleID == bundleID }?.name ?? "Terminal"
+            if runScripted(bundleID: bundleID, directory: directory, transcript: transcript) {
+                NotchArbiter.shared.flash("Opened in \(name)", symbol: "arrow.up.forward.app.fill",
+                                          module: .terminal, detail: "with the last 500 lines")
+                return true
+            }
+            // Scripting can be refused (the automation permission prompt was
+            // declined), so fall through rather than failing outright.
         }
 
         let configuration = NSWorkspace.OpenConfiguration()
@@ -261,5 +308,72 @@ final class TerminalWorkspace: ObservableObject {
             }
         }
         return true
+    }
+
+    /// The two terminals with a documented `do script`.
+    nonisolated static func supportsScripting(_ bundleID: String) -> Bool {
+        bundleID == "com.apple.Terminal" || bundleID == "com.googlecode.iterm2"
+    }
+
+    /// Opens a window that `cd`s to the directory and prints the transcript.
+    private func runScripted(bundleID: String, directory: String, transcript: String) -> Bool {
+        var command = "cd \(Self.shellQuote(directory))"
+
+        if !transcript.isEmpty {
+            let file = FileManager.default.temporaryDirectory
+                .appendingPathComponent("notchscotch-transcript-\(UUID().uuidString).txt")
+            let header = "──── carried over from NotchScotch ────\n"
+            let footer = "\n──── end of carried-over output ────\n"
+            guard (try? (header + transcript + footer).write(to: file, atomically: true,
+                                                             encoding: .utf8)) != nil else {
+                return false
+            }
+            // `cat` then delete. The transcript is printed, never evaluated.
+            command += " && cat \(Self.shellQuote(file.path)) && rm -f \(Self.shellQuote(file.path))"
+        }
+
+        let script: String
+        switch bundleID {
+        case "com.googlecode.iterm2":
+            script = """
+            tell application "iTerm2"
+                activate
+                set newWindow to (create window with default profile)
+                tell current session of newWindow to write text \(Self.appleScriptQuote(command))
+            end tell
+            """
+        default:
+            script = """
+            tell application "Terminal"
+                activate
+                do script \(Self.appleScriptQuote(command))
+            end tell
+            """
+        }
+
+        var error: NSDictionary?
+        let ran = NSAppleScript(source: script)?.executeAndReturnError(&error)
+        if ran == nil {
+            Log.term.error("terminal handoff script failed: \(String(describing: error), privacy: .public)")
+            return false
+        }
+        return true
+    }
+
+    /// Single-quotes a path for `sh`. The only character that matters inside
+    /// single quotes is a single quote, which is closed, escaped and reopened --
+    /// the standard `'\''` idiom. A directory named `it's` would otherwise
+    /// break the command, and worse, could end it.
+    nonisolated static func shellQuote(_ value: String) -> String {
+        "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    }
+
+    /// Quotes a string as an AppleScript literal. Backslashes first, or the
+    /// escaping of the quotes would itself be escaped.
+    nonisolated static func appleScriptQuote(_ value: String) -> String {
+        let escaped = value
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+        return "\"" + escaped + "\""
     }
 }
