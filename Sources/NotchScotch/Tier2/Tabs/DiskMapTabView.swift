@@ -297,7 +297,7 @@ struct DiskMapTabView: View {
                                 .foregroundStyle(theme.primaryText).lineLimit(1)
                             GeometryReader { geo in
                                 ZStack(alignment: .leading) {
-                                    Capsule().fill(Color.white.opacity(0.06))
+                                    Capsule().fill(theme.fieldBackground)
                                     Capsule()
                                         .fill(FileKind.of(entry.url).color.opacity(entry.isDirectory ? 0.8 : 0.55))
                                         .frame(width: max(2, geo.size.width * CGFloat(Double(entry.bytes) / Double(peak))))

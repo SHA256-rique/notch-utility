@@ -1180,3 +1180,85 @@ struct OrbIdleTests {
         #expect(PanelPresentation.allCases.contains(.notch))
     }
 }
+
+
+// MARK: - Themes
+
+@Suite("Themes")
+struct ThemeTests {
+
+    /// Light themes need dark text and dark themes need light text. Getting
+    /// this backwards is invisible in code review and instantly obvious in use.
+    @Test("Text contrasts with its own panel")
+    func textContrastsWithPanel() {
+        for kind in ThemeKind.allCases {
+            let theme = Theme(kind: kind)
+            let panel = luma(theme.panelBackground)
+            let text = luma(theme.primaryText)
+            #expect(abs(panel - text) > 0.45,
+                    "\(kind.rawValue): text luma \(text) against panel \(panel)")
+        }
+    }
+
+    @Test("Light themes are the ones that say they are")
+    func lightFlags() {
+        #expect(ThemeKind.latte.isLight)
+        #expect(ThemeKind.parchment.isLight)
+        #expect(!ThemeKind.minimal.isLight)
+        #expect(!ThemeKind.ember.isLight)
+        for kind in ThemeKind.allCases {
+            // A theme that claims to be light must actually have a light panel.
+            #expect(kind.isLight == (luma(Theme(kind: kind).panelBackground) > 0.5),
+                    "\(kind.rawValue) disagrees with its own isLight")
+        }
+    }
+
+    /// Single-accent themes collapse every module to one colour deliberately.
+    @Test("Two-tone themes use one accent everywhere")
+    func singleAccentThemes() {
+        for kind in [ThemeKind.minimal, .ember, .midnight] {
+            let theme = Theme(kind: kind)
+            #expect(!kind.usesModuleTints)
+            for module in [ModuleTint.home, .time, .ai, .terminal] {
+                #expect(theme.tint(module) == theme.accent,
+                        "\(kind.rawValue) tinted \(module.rawValue) separately")
+            }
+        }
+    }
+
+    /// The module palette is tuned for white text on black. On a cream panel
+    /// the same hues are unreadable, so light themes darken them.
+    @Test("Module tints darken on a light panel")
+    func tintsDarkenOnLight() {
+        for kind in ThemeKind.allCases where kind.isLight {
+            let theme = Theme(kind: kind)
+            for module in [ModuleTint.home, .time, .snippets, .notes, .ai] {
+                #expect(luma(theme.tint(module)) < 0.55,
+                        "\(kind.rawValue) \(module.rawValue) is too light to read on cream")
+            }
+        }
+    }
+
+    @Test("Every theme is named and described")
+    func metadata() {
+        let raws = ThemeKind.allCases.map(\.rawValue)
+        #expect(Set(raws).count == raws.count)
+        for kind in ThemeKind.allCases {
+            #expect(!kind.displayName.isEmpty)
+            #expect(kind.blurb.count > 20, "\(kind.rawValue) has no real blurb")
+        }
+        #expect(ThemeKind.allCases.count == 7)
+    }
+
+    /// Rec. 601 luma, the standard readability proxy. Alpha is composited over
+    /// the surface the colour actually sits on, since a 0.1-alpha ink over
+    /// cream is cream, not ink.
+    private func luma(_ color: Color, over background: Double = 0) -> Double {
+        guard let c = NSColor(color).usingColorSpace(.sRGB) else { return 0 }
+        let alpha = Double(c.alphaComponent)
+        let raw = 0.299 * Double(c.redComponent)
+                + 0.587 * Double(c.greenComponent)
+                + 0.114 * Double(c.blueComponent)
+        return raw * alpha + background * (1 - alpha)
+    }
+}

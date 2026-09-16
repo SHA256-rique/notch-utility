@@ -46,7 +46,7 @@ struct RevenueSettingsSection: View {
                         .textFieldStyle(.plain)
                         .font(.system(size: 11, design: .monospaced))
                         .padding(.horizontal, 9).padding(.vertical, 6)
-                        .background(RoundedRectangle(cornerRadius: 8).fill(Color.white.opacity(0.07)))
+                        .background(RoundedRectangle(cornerRadius: 8).fill(theme.fieldBackground))
 
                     Button("Save") {
                         Keychain.set(keyDraft.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -122,7 +122,7 @@ struct VisitorsSettingsSection: View {
                         .textFieldStyle(.plain)
                         .font(.system(size: 11, design: .monospaced))
                         .padding(.horizontal, 9).padding(.vertical, 6)
-                        .background(RoundedRectangle(cornerRadius: 8).fill(Color.white.opacity(0.07)))
+                        .background(RoundedRectangle(cornerRadius: 8).fill(theme.fieldBackground))
                     Button("Save") {
                         Keychain.set(tokenDraft.trimmingCharacters(in: .whitespacesAndNewlines),
                                      for: VisitorsService.keychainAccount)
@@ -303,7 +303,7 @@ struct CalendarSettingsSection: View {
                             .textFieldStyle(.plain)
                             .font(.system(size: 11, design: .monospaced))
                             .padding(.horizontal, 9).padding(.vertical, 6)
-                            .background(RoundedRectangle(cornerRadius: 8).fill(Color.white.opacity(0.07)))
+                            .background(RoundedRectangle(cornerRadius: 8).fill(theme.fieldBackground))
                         Button("Save") {
                             Keychain.set(secretDraft.trimmingCharacters(in: .whitespacesAndNewlines),
                                          for: GoogleCalendarService.clientSecretAccount)

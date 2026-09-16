@@ -58,7 +58,7 @@ struct TeleprompterTabView: View {
                 .font(.system(size: 12))
                 .scrollContentBackground(.hidden)
                 .padding(8)
-                .background(RoundedRectangle(cornerRadius: 8).fill(Color.white.opacity(0.06)))
+                .background(RoundedRectangle(cornerRadius: 8).fill(theme.fieldBackground))
                 .padding(.horizontal, 12)
                 .padding(.bottom, 12)
         }

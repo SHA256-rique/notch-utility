@@ -236,7 +236,7 @@ struct GeneralSettings: View {
             .scrollContentBackground(.hidden)
             .frame(height: 80)
             .padding(6)
-            .background(RoundedRectangle(cornerRadius: 8).fill(Color.white.opacity(0.07)))
+            .background(RoundedRectangle(cornerRadius: 8).fill(theme.fieldBackground))
     }
 
     @ViewBuilder
@@ -528,7 +528,7 @@ struct AISettings: View {
                     .textFieldStyle(.plain)
                     .font(.system(size: 11, design: .monospaced))
                     .padding(.horizontal, 9).padding(.vertical, 6)
-                    .background(RoundedRectangle(cornerRadius: 8).fill(Color.white.opacity(0.07)))
+                    .background(RoundedRectangle(cornerRadius: 8).fill(theme.fieldBackground))
                 Button(saved ? "Saved" : "Save") {
                     Keychain.set(keyDraft, for: settings.data.llmProvider.keychainAccount)
                     keyDraft = ""

@@ -128,7 +128,7 @@ struct SnippetsTabView: View {
                     .scrollContentBackground(.hidden)
                     .frame(height: 64)
                     .padding(6)
-                    .background(RoundedRectangle(cornerRadius: 8).fill(Color.white.opacity(0.07)))
+                    .background(RoundedRectangle(cornerRadius: 8).fill(theme.fieldBackground))
                 HStack {
                     Text("\(draftBody.count) chars")
                         .font(.system(size: 9)).foregroundStyle(theme.secondaryText)

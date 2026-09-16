@@ -185,10 +185,10 @@ struct NBTextField: View {
             .padding(.vertical, 6)
             .background(
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(Color.white.opacity(0.07))
+                    .fill(theme.fieldBackground)
                     .overlay(
                         RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .stroke(Color.white.opacity(0.10), lineWidth: 1)
+                            .stroke(theme.panelStroke, lineWidth: 1)
                     )
             )
             .onSubmit { onSubmit?() }

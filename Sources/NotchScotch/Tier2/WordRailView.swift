@@ -61,7 +61,7 @@ struct WordRailView: View {
         }
         .padding(.top, 8)
         .frame(maxHeight: .infinity)
-        .background(Color.white.opacity(0.03))
+        .background(theme.surfaceTint)
         .overlay(alignment: .leading) {
             Rectangle().fill(theme.panelStroke).frame(width: 0.5)
         }
@@ -115,7 +115,7 @@ struct WordRailView: View {
                 footer(theme)
             }
         }
-        .background(Color.white.opacity(0.03))
+        .background(theme.surfaceTint)
         .overlay(alignment: .leading) {
             Rectangle().fill(theme.panelStroke).frame(width: 0.5)
         }

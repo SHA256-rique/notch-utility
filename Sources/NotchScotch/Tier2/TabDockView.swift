@@ -97,7 +97,7 @@ struct TabDockView: View {
         .animation(Motion.dockMagnify, value: hoverX)
         .background(
             Rectangle()
-                .fill(Color.white.opacity(0.035))
+                .fill(theme.surfaceTint)
                 .overlay(alignment: .top) {
                     Rectangle().fill(theme.panelStroke).frame(height: 0.5)
                 }
