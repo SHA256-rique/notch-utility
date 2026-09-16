@@ -10,25 +10,25 @@ it.
 
 **Every time a unit of work is finished, write a Markdown log to
 `output_logs/`.** This is not optional and not conditional on the work being
-interesting.
+interesting. If the content is similar to what you have told user in the terminal after completing work ,just pipe the response to the new log file.
 
 **Filename:** `output_logs/YYYY-MM-DD-HHMM-short-slug.md`
 
 **It must contain:**
 
-| Section | What goes in it |
-|---|---|
-| **What was asked** | The request, in the user's own framing. Quote it where the wording matters. |
-| **What changed** | Files touched and what each change does. Not a diff — the *intent*. |
+| Section                           | What goes in it                                                                                                                                      |
+| --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **What was asked**                | The request, in the user's own framing. Quote it where the wording matters.                                                                          |
+| **What changed**                  | Files touched and what each change does. Not a diff — the _intent_.                                                                                  |
 | **Commands run and their output** | The real commands, with their real output. Build results, test counts, benchmark numbers, launch checks. Paste the output, do not summarise it away. |
-| **Decisions and trade-offs** | Anything where a reasonable engineer would have chosen differently, and why this way. Link the ADR if one was written. |
-| **What is still open** | Known gaps, things deliberately skipped, things that need the user to verify. Be honest here; this section is the point. |
-| **Commits** | Hashes and subject lines. |
+| **Decisions and trade-offs**      | Anything where a reasonable engineer would have chosen differently, and why this way. Link the ADR if one was written.                               |
+| **What is still open**            | Known gaps, things deliberately skipped, things that need the user to verify. Be honest here; this section is the point.                             |
+| **Commits**                       | Hashes and subject lines.                                                                                                                            |
 
 **Rules for the log:**
 
 - **Paste real output.** "Tests passed" is worthless; `✔ Test run with 153 tests
-  in 28 suites passed` is a record. If a command failed, the failure goes in
+in 28 suites passed` is a record. If a command failed, the failure goes in
   too — a log that only contains successes is a press release.
 - **Record what did not work.** Reverted approaches, wrong first attempts, and
   bugs found by running the thing are the most valuable content in the file.
@@ -72,13 +72,13 @@ raise it rather than quietly picking a side.
 9. **Local-first.** Settings → About lists everything that leaves the Mac, and
    that list must stay true.
 10. **Apple-quality motion.** Springs from `Motion`, never ad-hoc durations. One
-    animation per *category* of thing, not per feature.
+    animation per _category_ of thing, not per feature.
 
 ---
 
 ## House rules for the code
 
-- **Comment the *why*, never the *what*.** `// increment counter` is noise.
+- **Comment the _why_, never the _what_.** `// increment counter` is noise.
   "Skip the publish entirely if nothing changed — Tier-1 subsystems re-assert
   their claim on every event, and without this a battery notification storm
   becomes a SwiftUI invalidation storm" is the standard.

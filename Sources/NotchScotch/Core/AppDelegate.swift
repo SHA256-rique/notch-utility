@@ -54,6 +54,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         // 5. Approval transports.
         ApprovalHookServer.shared.start()
+
+        // Benchmark hook. `NOTCHSCOTCH_BENCH_TAB=terminal open -a …` launches
+        // straight into one tab in the standalone window, which is what lets
+        // Scripts/bench-tabs.sh measure a tab's real cost without a human
+        // clicking through thirteen of them.
+        //
+        // Env var rather than a launch argument: `open` does not forward
+        // arguments to an already-running instance, and an env var is trivially
+        // absent in normal use -- there is no code path here that a user can
+        // reach by accident.
+        if let requested = ProcessInfo.processInfo.environment["NOTCHSCOTCH_BENCH_TAB"] {
+            openBenchmarkTab(named: requested)
+        }
         if Settings.shared.data.selectionAssistEnabled,
            SelectionWatcher.hasAccessibilityPermission {
             SelectionWatcher.shared.arm()
@@ -183,6 +196,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func openSettings() {
         NotchPanelController.shared.isPinnedForSettings()
+    }
+
+    /// Opens a named tab for benchmarking. Unknown names are ignored rather
+    /// than defaulted, so a typo in a bench script shows up as "nothing opened"
+    /// instead of silently measuring Home thirteen times.
+    private func openBenchmarkTab(named name: String) {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed != "collapsed" else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+            if let id = TabID(rawValue: trimmed) {
+                StandaloneWindowController.shared.open(selecting: .builtin(id))
+            } else if let detail = DetailTab(rawValue: trimmed) {
+                NotchPanelController.shared.openDetail(detail)
+                StandaloneWindowController.shared.open()
+            } else {
+                Log.panel.error("bench tab \(trimmed, privacy: .public) not recognised")
+            }
+        }
     }
 
     @objc private func openStandaloneWindow() {
