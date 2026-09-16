@@ -26,11 +26,20 @@ enum LLMError: LocalizedError {
     }
 }
 
-struct LLMMessage: Identifiable, Equatable {
-    enum Role: String { case user, assistant, system }
-    let id = UUID()
+struct LLMMessage: Identifiable, Codable, Equatable {
+    enum Role: String, Codable { case user, assistant, system }
+    var id = UUID()
     var role: Role
     var text: String
+    /// PNG images attached to this turn, base64-encoded.
+    ///
+    /// Stored on the message rather than alongside it because that is what
+    /// makes a conversation replayable: re-sending history has to re-send what
+    /// the model was actually looking at, or the second turn is answering a
+    /// question about an image it can no longer see.
+    var images: [String] = []
+
+    var hasImages: Bool { !images.isEmpty }
 }
 
 struct LLMClient {
@@ -132,8 +141,19 @@ struct LLMClient {
                 "stream": stream,
                 // Anthropic takes the system prompt as a top-level field rather
                 // than as a message with role "system".
-                "messages": messages.filter { $0.role != .system }.map {
-                    ["role": $0.role.rawValue, "content": $0.text]
+                "messages": messages.filter { $0.role != .system }.map { message -> [String: Any] in
+                    guard message.hasImages else {
+                        return ["role": message.role.rawValue, "content": message.text]
+                    }
+                    // Images first, then the text: both vendors document better
+                    // results that way, and it matches how a person would hand
+                    // someone a screenshot and then ask about it.
+                    var blocks: [[String: Any]] = message.images.map { data in
+                        ["type": "image",
+                         "source": ["type": "base64", "media_type": "image/png", "data": data]]
+                    }
+                    blocks.append(["type": "text", "text": message.text])
+                    return ["role": message.role.rawValue, "content": blocks]
                 }
             ]
             if let system { payload["system"] = system }
@@ -143,15 +163,30 @@ struct LLMClient {
             request.setValue("Bearer \(key!)", forHTTPHeaderField: "Authorization")
             var chat: [[String: Any]] = []
             if let system { chat.append(["role": "system", "content": system]) }
-            chat += messages.map { ["role": $0.role.rawValue, "content": $0.text] }
+            chat += messages.map { message -> [String: Any] in
+                guard message.hasImages else {
+                    return ["role": message.role.rawValue, "content": message.text]
+                }
+                var blocks: [[String: Any]] = message.images.map { data in
+                    ["type": "image_url",
+                     "image_url": ["url": "data:image/png;base64,\(data)"]]
+                }
+                blocks.append(["type": "text", "text": message.text])
+                return ["role": message.role.rawValue, "content": blocks]
+            }
             body = ["model": model, "max_tokens": maxTokens, "stream": stream, "messages": chat]
 
         case .ollama:
             // Local, keyless. Same message shape as OpenAI, different streaming
-            // format (newline-delimited JSON rather than SSE).
+            // format (newline-delimited JSON rather than SSE), and images go in
+            // a sibling array rather than as content blocks.
             var chat: [[String: Any]] = []
             if let system { chat.append(["role": "system", "content": system]) }
-            chat += messages.map { ["role": $0.role.rawValue, "content": $0.text] }
+            chat += messages.map { message -> [String: Any] in
+                var entry: [String: Any] = ["role": message.role.rawValue, "content": message.text]
+                if message.hasImages { entry["images"] = message.images }
+                return entry
+            }
             body = ["model": model, "stream": stream, "messages": chat]
         }
 
