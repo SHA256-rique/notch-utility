@@ -86,6 +86,7 @@ final class NotchPanelController: NSObject, ObservableObject {
     /// the collapsed state is the one both presentations agree on.
     func presentationChanged() {
         objectWillChange.send()
+        panel?.setDraggable(presentation == .orb)
         if state == .expanded { collapse() } else { applyFrame(collapsedSize, animated: true) }
     }
 
@@ -245,6 +246,7 @@ final class NotchPanelController: NSObject, ObservableObject {
         hosting.autoresizingMask = [.width, .height]
         panel.contentView = hosting
         panel.setHiddenFromCapture(Settings.shared.data.hideFromScreenRecordingPanel)
+        panel.setDraggable(presentation == .orb)
         panel.orderFrontRegardless()
 
         observeScreenChanges()
@@ -355,6 +357,23 @@ final class NotchPanelController: NSObject, ObservableObject {
         Log.tabs.debug("close tab \(String(describing: self.activeTab), privacy: .public)")
         activeTab = nil
         panel.wantsKeyboardFocus = false
+    }
+
+    /// Runs a system modal (an open panel, a save panel) with the notch panel
+    /// out of its way, then puts it back.
+    ///
+    /// The panel lives at `.statusBar` level so it floats over ordinary
+    /// windows -- which is right until an `NSOpenPanel` appears *underneath* it
+    /// and the user is picking a file they cannot see. Dropping the level for
+    /// the duration is enough; collapsing instead would tear down the calling
+    /// tab's view while it is mid-call, and `runModal()` blocks the run loop so
+    /// the collapse could not even finish first.
+    func runningModal<T>(_ body: () -> T) -> T {
+        let previous = panel?.level ?? .statusBar
+        panel?.level = .normal
+        defer { panel?.level = previous }
+        NSApp.activate(ignoringOtherApps: true)
+        return body()
     }
 
     // MARK: - Detail tabs
@@ -502,6 +521,10 @@ final class NotchPanelController: NSObject, ObservableObject {
             .sink { [weak self] _ in
                 guard let self else { return }
                 self.layout = ScreenGeometry.current()
+                // Moving between a notched laptop and an external display can
+                // flip the resolved presentation, and with it whether the
+                // window may be dragged at all.
+                self.panel?.setDraggable(self.presentation == .orb)
                 self.applyFrame(self.state == .collapsed ? self.collapsedSize : self.expandedSize, animated: false)
                 Log.panel.info("screen parameters changed, repositioned")
             }

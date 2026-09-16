@@ -50,8 +50,13 @@ final class NotchPanel: NSPanel {
         collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary]
 
         // A borderless panel would otherwise be draggable by its background,
-        // which makes the hover-to-expand gesture feel broken when a click-drag
-        // slides the whole notch off-centre.
+        // which makes hover-to-expand feel broken when a click-drag slides the
+        // whole notch off-centre.
+        //
+        // `isMovable` is flipped on for the orb, which is the one presentation
+        // where moving the window is the entire point. It stays off by default
+        // because `performDrag(with:)` is a no-op on an immovable window --
+        // silently, which is exactly how the orb ended up un-draggable.
         isMovable = false
         isMovableByWindowBackground = false
 
@@ -68,6 +73,16 @@ final class NotchPanel: NSPanel {
     // A borderless window returns false for both of these by default, which
     // would make every text field in every tab inert.
     override var canBecomeKey: Bool { wantsKeyboardFocus }
+
+    /// Orb mode needs a movable window; notch mode must not have one.
+    func setDraggable(_ draggable: Bool) {
+        isMovable = draggable
+        // Background dragging stays off even for the orb: the orb hands
+        // `performDrag` a specific mouse-down from a view it controls, and
+        // background dragging would additionally let a drag start anywhere in
+        // the window -- including the transparent area a toast occupies.
+        isMovableByWindowBackground = false
+    }
     override var canBecomeMain: Bool { false }
 
     /// `.none` makes the window invisible to screen capture, screen sharing and
