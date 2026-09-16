@@ -20,3 +20,6 @@ xcuserdata/
 # Editor
 .vscode/
 *.swp
+
+# Screenshots dropped into the repo root for reference
+/Screenshot*.png
