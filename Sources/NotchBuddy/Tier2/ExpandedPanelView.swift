@@ -171,6 +171,7 @@ struct ExpandedPanelView: View {
         case .notes:    NotesTabView()
         case .calendar: CalendarTabView()
         case .files:    FilesTabView()
+        case .diskMap:  DiskMapTabView()
         case .api:      APITesterTabView()
         case .terminal: TerminalTabView()
         case .ai:       AIChatTabView()

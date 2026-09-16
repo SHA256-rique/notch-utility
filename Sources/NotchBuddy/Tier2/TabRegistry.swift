@@ -4,7 +4,7 @@ import SwiftUI
 /// persisted to JSON, and a raw-value string survives reordering and removal of
 /// cases in a way an Int would not.
 enum TabID: String, Codable, CaseIterable, Identifiable, Hashable {
-    case home, time, snippets, notes, calendar, files, api, terminal, ai, message, settings
+    case home, time, snippets, notes, calendar, files, diskMap, api, terminal, ai, message, settings
     var id: String { rawValue }
 
     static let defaultOrder: [String] = TabID.allCases.map(\.rawValue)
@@ -17,6 +17,7 @@ enum TabID: String, Codable, CaseIterable, Identifiable, Hashable {
         case .notes: return "Notes"
         case .calendar: return "Calendar"
         case .files: return "Files"
+        case .diskMap: return "Disk Map"
         case .api: return "API"
         case .terminal: return "Terminal"
         case .ai: return "AI Chat"
@@ -33,6 +34,7 @@ enum TabID: String, Codable, CaseIterable, Identifiable, Hashable {
         case .notes: return "note.text"
         case .calendar: return "calendar"
         case .files: return "arrow.triangle.2.circlepath.doc.on.clipboard"
+        case .diskMap: return "chart.pie.fill"
         case .api: return "network"
         case .terminal: return "terminal.fill"
         case .ai: return "sparkles"
@@ -49,6 +51,7 @@ enum TabID: String, Codable, CaseIterable, Identifiable, Hashable {
         case .notes: return .notes
         case .calendar: return .calendar
         case .files: return .files
+        case .diskMap: return .files
         case .api: return .api
         case .terminal: return .terminal
         case .ai: return .ai
@@ -79,6 +82,7 @@ enum TabID: String, Codable, CaseIterable, Identifiable, Hashable {
         case .notes:    return CGSize(width: 600, height: 430)
         case .calendar: return CGSize(width: 800, height: 470)   // agenda and month, side by side
         case .files:    return CGSize(width: 660, height: 440)
+        case .diskMap:  return CGSize(width: 900, height: 540)   // sidebar, browser and inspector
         case .api:      return CGSize(width: 720, height: 480)   // request above, response below
         case .terminal: return CGSize(width: 880, height: 540)   // four panes still need ~60 columns each
         case .ai:       return CGSize(width: 680, height: 480)

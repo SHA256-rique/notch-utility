@@ -122,16 +122,32 @@ final class NotchArbiter: ObservableObject {
     /// scattered through the codebase.
     func flash(_ text: String, symbol: String, module: ModuleTint = .system,
                detail: String? = nil, duration: TimeInterval? = nil) {
-        let ttl = duration ?? max(0.8, Settings.shared.data.transientToastSeconds)
-        claim(PillClaim(id: "transient",
-                        priority: .transient,
-                        module: module,
-                        symbol: symbol,
-                        text: text,
-                        detail: detail,
-                        rank: 0,
-                        expiresAt: Date().addingTimeInterval(ttl),
-                        progress: nil))
+        claim(Self.transientClaim(text: text, symbol: symbol, module: module,
+                                  detail: detail, duration: duration,
+                                  preferredHold: Settings.shared.data.transientToastSeconds))
+    }
+
+    /// Builds the claim `flash` publishes.
+    ///
+    /// Split out as a pure function so the duration rule can be tested without
+    /// going through the shared slot -- which is global mutable state that any
+    /// other test calling `flash` would race with.
+    static func transientClaim(text: String, symbol: String, module: ModuleTint,
+                               detail: String?, duration: TimeInterval?,
+                               preferredHold: TimeInterval,
+                               now: Date = Date()) -> PillClaim {
+        // A hold of zero would leave a toast on screen for a single frame. The
+        // slider cannot reach it; a hand-edited settings file can.
+        let ttl = duration ?? max(0.8, preferredHold)
+        return PillClaim(id: "transient",
+                         priority: .transient,
+                         module: module,
+                         symbol: symbol,
+                         text: text,
+                         detail: detail,
+                         rank: 0,
+                         expiresAt: now.addingTimeInterval(ttl),
+                         progress: nil)
     }
 
     // MARK: - Resolution

@@ -790,7 +790,7 @@ struct StorageTests {
 
 // MARK: - Transient presentation
 
-@Suite("Transient presentation", .serialized)
+@Suite("Transient presentation")
 struct TransientStyleTests {
 
     @Test("Both styles are complete and distinct")
@@ -811,51 +811,44 @@ struct TransientStyleTests {
         #expect(SettingsData().transientStyle == .sweep)
     }
 
-    /// The hold is one setting rather than thirty literals. A call site passes a
-    /// duration only when the message genuinely needs longer than usual.
+    /// The hold is one setting rather than thirty literals scattered through the
+    /// codebase. A call site passes a duration only when the message genuinely
+    /// needs longer than usual.
+    ///
+    /// Asserted against the pure builder rather than the arbiter's shared slot:
+    /// that slot is global mutable state, so any other test that happens to
+    /// call `flash` -- the task board and the water tracker both do -- would
+    /// race with these and fail intermittently.
     @Test("Flash without a duration follows the user's hold preference")
     func flashUsesPreference() {
-        let arbiter = NotchArbiter.shared
-        arbiter.clearTransient()
-        Settings.shared.data.transientToastSeconds = 3.0
-
-        arbiter.flash("Copied", symbol: "doc.on.doc")
-        guard let expiry = arbiter.transient?.expiresAt else {
-            Issue.record("no transient"); return
-        }
-        #expect(abs(expiry.timeIntervalSinceNow - 3.0) < 0.3)
-        arbiter.clearTransient()
+        let now = Date()
+        let claim = NotchArbiter.transientClaim(
+            text: "Copied", symbol: "doc.on.doc", module: .snippets,
+            detail: nil, duration: nil, preferredHold: 3.0, now: now)
+        #expect(abs((claim.expiresAt?.timeIntervalSince(now) ?? 0) - 3.0) < 0.001)
+        #expect(claim.priority == .transient)
     }
 
     @Test("An explicit duration still wins")
     func explicitDurationWins() {
-        let arbiter = NotchArbiter.shared
-        arbiter.clearTransient()
-        Settings.shared.data.transientToastSeconds = 1.0
-
-        arbiter.flash("Timer finished", symbol: "bell.fill", module: .time, duration: 5)
-        guard let expiry = arbiter.transient?.expiresAt else {
-            Issue.record("no transient"); return
-        }
-        #expect(abs(expiry.timeIntervalSinceNow - 5.0) < 0.3)
-        arbiter.clearTransient()
+        let now = Date()
+        let claim = NotchArbiter.transientClaim(
+            text: "Timer finished", symbol: "bell.fill", module: .time,
+            detail: nil, duration: 5, preferredHold: 1.0, now: now)
+        #expect(abs((claim.expiresAt?.timeIntervalSince(now) ?? 0) - 5.0) < 0.001)
     }
 
     /// A hold of zero would leave a toast on screen for exactly one frame. The
     /// slider cannot reach it, but a hand-edited settings file can.
     @Test("A nonsensical hold is floored")
     func holdIsFloored() {
-        let arbiter = NotchArbiter.shared
-        arbiter.clearTransient()
-        Settings.shared.data.transientToastSeconds = 0
-
-        arbiter.flash("Copied", symbol: "doc.on.doc")
-        guard let expiry = arbiter.transient?.expiresAt else {
-            Issue.record("no transient"); return
-        }
-        #expect(expiry.timeIntervalSinceNow >= 0.5)
-        arbiter.clearTransient()
-        Settings.shared.data.transientToastSeconds = SettingsData().transientToastSeconds
+        let now = Date()
+        let claim = NotchArbiter.transientClaim(
+            text: "Copied", symbol: "doc.on.doc", module: .snippets,
+            detail: nil, duration: nil, preferredHold: 0, now: now)
+        // Date arithmetic is not exact at this magnitude, so compare with a
+        // tolerance rather than asserting >= 0.8 and failing on 0.7999999.
+        #expect(abs((claim.expiresAt?.timeIntervalSince(now) ?? 0) - 0.8) < 0.001)
     }
 }
 
@@ -897,12 +890,19 @@ struct PanelSizingTests {
         }
     }
 
-    /// The terminal is the one tab where columns change what you can actually
-    /// run — an 80-column shell is a different tool from a 60-column one.
-    @Test("Terminal is the widest tab")
-    func terminalIsWidest() {
-        let widest = TabID.allCases.max { $0.preferredSize.width < $1.preferredSize.width }
-        #expect(widest == .terminal)
+    /// Width is earned by panel count, and the terminal earns it by columns: an
+    /// 80-column shell is a different tool from a 60-column one, and a
+    /// four-way split has to keep each pane above that.
+    @Test("The wide tabs are the ones with several panels")
+    func widthFollowsPanelCount() {
+        let wide: Set<TabID> = [.terminal, .snippets, .calendar, .diskMap]
+        for id in TabID.allCases where !wide.contains(id) {
+            #expect(id.preferredSize.width < TabID.terminal.preferredSize.width,
+                    "\(id.rawValue) is as wide as the terminal without needing to be")
+        }
+        // Disk Map carries three panels -- sidebar, browser, inspector -- so it
+        // is the only tab allowed to be wider than the terminal.
+        #expect(TabID.diskMap.preferredSize.width >= TabID.terminal.preferredSize.width)
     }
 
     /// Snippets holds a list and the task board side by side; a narrow panel
@@ -1106,5 +1106,139 @@ struct TerminalWorkspaceTests {
         #expect(TerminalTabView.abbreviate(home + "/Documents") == "~/Documents")
         #expect(TerminalTabView.abbreviate(home + "/a/b/c/d") == "…/c/d")
         #expect(TerminalTabView.abbreviate("/usr/local/bin") == "/usr/local/bin")
+    }
+}
+
+
+// MARK: - Disk map
+
+@Suite("Treemap layout")
+struct TreemapTests {
+
+    private struct Item { let name: String; let weight: Double }
+
+    private func tiles(_ weights: [Double], in size: CGSize) -> [Treemap.Tile<Item>] {
+        let items = weights.enumerated().map { Item(name: "\($0.offset)", weight: $0.element) }
+        return Treemap.layout(items, in: CGRect(origin: .zero, size: size)) { $0.weight }
+    }
+
+    @Test("Every positive item gets a tile")
+    func allItemsPlaced() {
+        #expect(tiles([50, 30, 20], in: CGSize(width: 300, height: 200)).count == 3)
+    }
+
+    @Test("Zero-sized items are dropped rather than given slivers")
+    func zeroDropped() {
+        #expect(tiles([50, 0, 30], in: CGSize(width: 300, height: 200)).count == 2)
+    }
+
+    /// The property that makes a treemap a treemap: area is proportional to
+    /// weight. Tolerance is loose because the last row absorbs rounding.
+    @Test("Area is proportional to weight")
+    func areasAreProportional() {
+        let bounds = CGSize(width: 400, height: 300)
+        let weights: [Double] = [100, 50, 25, 25]
+        let laid = tiles(weights, in: bounds)
+        let total = Double(bounds.width * bounds.height)
+        let weightTotal = weights.reduce(0, +)
+
+        for (index, tile) in laid.enumerated() {
+            let expected = weights[index] / weightTotal * total
+            let actual = Double(tile.rect.width * tile.rect.height)
+            #expect(abs(actual - expected) / expected < 0.02,
+                    "tile \(index) area was \(actual), expected \(expected)")
+        }
+    }
+
+    @Test("Tiles stay inside the bounds")
+    func withinBounds() {
+        let bounds = CGRect(x: 0, y: 0, width: 320, height: 240)
+        for tile in tiles([80, 40, 30, 20, 10, 5, 3], in: bounds.size) {
+            #expect(tile.rect.minX >= -0.01)
+            #expect(tile.rect.minY >= -0.01)
+            #expect(tile.rect.maxX <= bounds.maxX + 0.01)
+            #expect(tile.rect.maxY <= bounds.maxY + 0.01)
+        }
+    }
+
+    /// The whole reason squarified beats slice-and-dice: no unreadable,
+    /// unclickable slivers. Naive alternation would produce ratios in the
+    /// hundreds here.
+    @Test("Rectangles stay roughly square")
+    func aspectRatiosAreSane() {
+        let laid = tiles([40, 30, 20, 15, 10, 8, 6, 4], in: CGSize(width: 400, height: 300))
+        for tile in laid where tile.rect.width > 1 && tile.rect.height > 1 {
+            let ratio = max(tile.rect.width / tile.rect.height, tile.rect.height / tile.rect.width)
+            #expect(ratio < 12, "tile aspect ratio \(ratio) is a sliver")
+        }
+    }
+
+    @Test("Degenerate bounds produce nothing rather than crashing")
+    func degenerateBounds() {
+        #expect(tiles([10, 5], in: CGSize(width: 0, height: 100)).isEmpty)
+        #expect(tiles([], in: CGSize(width: 100, height: 100)).isEmpty)
+    }
+}
+
+@Suite("Disk map model")
+struct DiskMapTests {
+
+    @Test("File kinds bucket by extension")
+    func fileKinds() {
+        #expect(FileKind.of(URL(fileURLWithPath: "/x/a.mp4")) == .video)
+        #expect(FileKind.of(URL(fileURLWithPath: "/x/a.PNG")) == .image)
+        #expect(FileKind.of(URL(fileURLWithPath: "/x/a.swift")) == .developer)
+        #expect(FileKind.of(URL(fileURLWithPath: "/x/a.zip")) == .archive)
+        #expect(FileKind.of(URL(fileURLWithPath: "/x/noextension")) == .other)
+    }
+
+    /// A bundle is a directory the user thinks of as one thing, so it is sized
+    /// whole and never drilled into.
+    @Test("Bundles are not drillable")
+    func bundlesAreOpaque() {
+        let app = DiskEntry(url: URL(fileURLWithPath: "/Applications/Safari.app"),
+                            name: "Safari.app", isDirectory: true, bytes: 100, items: 5,
+                            isBundle: true)
+        let folder = DiskEntry(url: URL(fileURLWithPath: "/Users/x/Documents"),
+                               name: "Documents", isDirectory: true, bytes: 100, items: 5,
+                               isBundle: false)
+        let file = DiskEntry(url: URL(fileURLWithPath: "/Users/x/a.txt"),
+                             name: "a.txt", isDirectory: false, bytes: 10, items: 1,
+                             isBundle: false)
+        #expect(!app.isDrillable)
+        #expect(folder.isDrillable)
+        #expect(!file.isDrillable)
+    }
+
+    @Test("Every cleanup category explains what it costs")
+    func categoriesExplainThemselves() {
+        for category in CleanupCategory.all() {
+            #expect(!category.name.isEmpty)
+            #expect(!category.symbol.isEmpty)
+            // The whole safety position: nothing is offered without saying what
+            // happens if it goes.
+            #expect(category.consequence.count > 20, "\(category.name) has no real consequence note")
+        }
+    }
+
+    @Test("Categories only list folders that exist")
+    func categoriesExist() {
+        for category in CleanupCategory.all() {
+            #expect(FileManager.default.fileExists(atPath: category.url.path))
+        }
+    }
+
+    @MainActor
+    @Test("The home folder is where it starts, and the crumb for it is ~")
+    func crumbNaming() {
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        #expect(DiskMapModel.crumbName(home) == "~")
+        #expect(DiskMapModel.crumbName(home.appendingPathComponent("Documents")) == "Documents")
+    }
+
+    @Test("Disk Map is a real tab with room for three panels")
+    func tabRegistered() {
+        #expect(TabID.allCases.contains(.diskMap))
+        #expect(TabID.diskMap.preferredSize.width >= 880)
     }
 }

@@ -188,7 +188,7 @@ final class TerminalWorkspace: ObservableObject {
         let bundleID: String
     }
 
-    static let knownTerminals: [ExternalTerminal] = [
+    nonisolated static let knownTerminals: [ExternalTerminal] = [
         ExternalTerminal(name: "Terminal", bundleID: "com.apple.Terminal"),
         ExternalTerminal(name: "iTerm2", bundleID: "com.googlecode.iterm2"),
         ExternalTerminal(name: "Ghostty", bundleID: "com.mitchellh.ghostty"),
