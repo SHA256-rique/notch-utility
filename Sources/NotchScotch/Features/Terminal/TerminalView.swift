@@ -131,7 +131,32 @@ struct TerminalGridView: View {
         }
         // `generation` is the only thing the Canvas observes. The emulator itself
         // is a plain class, deliberately not @Published per mutation.
-        .id("\(session.generation)-\(cursorOn)-\(isFocused)-\(selection?.head.line ?? -1)-\(selection?.head.column ?? -1)")
+        .id(Self.renderKey(sessionID: session.id,
+                           generation: session.generation,
+                           cursorOn: cursorOn,
+                           isFocused: isFocused,
+                           selection: selection))
+    }
+
+    /// Identity for the Canvas, which is how it is forced to redraw.
+    ///
+    /// The emulator is a plain class, deliberately not `@Published` per
+    /// mutation, so SwiftUI has no way to know its contents changed. Changing
+    /// the view's identity is what makes `Canvas` re-run its draw closure.
+    ///
+    /// **The session id has to be in here.** Without it, every unfocused pane in
+    /// a split produced the *same* key -- same generation, same cursor phase,
+    /// `isFocused: false`, no selection -- and three sibling views sharing one
+    /// explicit identity is not three views to SwiftUI. It drew one and left the
+    /// rest blank, which is exactly what "only the first terminal has a CLI"
+    /// looked like. The shells were all running the whole time.
+    nonisolated static func renderKey(sessionID: UUID,
+                                      generation: Int,
+                                      cursorOn: Bool,
+                                      isFocused: Bool,
+                                      selection: TerminalSelection?) -> String {
+        "\(sessionID.uuidString)-\(generation)-\(cursorOn)-\(isFocused)"
+            + "-\(selection?.head.line ?? -1)-\(selection?.head.column ?? -1)"
     }
 
     private func drawSelection(_ selection: TerminalSelection, line: Int, width: Int,

@@ -152,6 +152,25 @@ final class TerminalEmulator {
         while lines.count < r {
             lines.append(Line(cells: Array(repeating: .blank, count: c)))
         }
+
+        // Shrinking needs the opposite, and its absence was a real bug.
+        //
+        // `visibleLines` is the *last* `rows` lines of the buffer. Growing the
+        // array on resize but never shrinking it meant that after a screen got
+        // shorter -- splitting one terminal into four, say -- `lines.count`
+        // stayed at the old height while `rows` dropped, so the window slid
+        // down the buffer and the top of the output scrolled off. A shell that
+        // had printed one prompt showed a completely blank pane.
+        //
+        // Only *blank trailing* lines are dropped, and never the cursor's own.
+        // Genuine scrollback is lines with content on them, and shrinking the
+        // window must not discard it.
+        while lines.count > r,
+              cursorRow < lines.count - 1,
+              lines[lines.count - 1].cells.allSatisfy({ $0.character == " " }) {
+            lines.removeLast()
+        }
+
         cursorRow = min(cursorRow, lines.count - 1)
         cursorColumn = min(cursorColumn, c - 1)
         clampScrollOffset()

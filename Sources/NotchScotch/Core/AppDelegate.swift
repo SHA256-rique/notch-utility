@@ -207,6 +207,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
             if let id = TabID(rawValue: trimmed) {
                 StandaloneWindowController.shared.open(selecting: .builtin(id))
+                // Lets the bench (and a bug report) open straight into a split.
+                if id == .terminal,
+                   let name = ProcessInfo.processInfo.environment["NOTCHSCOTCH_BENCH_LAYOUT"],
+                   let layout = TerminalWorkspace.Layout(rawValue: name) {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                        TerminalWorkspace.shared.setLayout(layout)
+                    }
+                }
             } else if let detail = DetailTab(rawValue: trimmed) {
                 NotchPanelController.shared.openDetail(detail)
                 StandaloneWindowController.shared.open()
