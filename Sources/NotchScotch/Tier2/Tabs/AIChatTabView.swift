@@ -114,8 +114,11 @@ final class AIChatModel: ObservableObject {
         let panel = NSOpenPanel()
         panel.allowsMultipleSelection = true
         panel.canChooseDirectories = false
-        NSApp.activate(ignoringOtherApps: true)
-        guard panel.runModal() == .OK else { return }
+        panel.message = "Attach files to this conversation"
+        // The notch panel floats above ordinary windows, so without this the
+        // open panel opens *behind* it and you are choosing a file you cannot see.
+        let chose = NotchPanelController.shared.runningModal { panel.runModal() }
+        guard chose == .OK else { return }
         for url in panel.urls {
             switch ChatContextLoader.load(url: url) {
             case .success(let attachment): store.addAttachment(attachment)
@@ -149,6 +152,18 @@ final class AIChatModel: ObservableObject {
         }
     }
 
+    /// Free-typed context, from the composer in the context panel.
+    func addTextContext(_ text: String, name: String) {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        let label = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        store.addAttachment(ChatAttachment(
+            kind: .snippet,
+            name: label.isEmpty ? "Note" : label,
+            text: trimmed))
+        objectWillChange.send()
+    }
+
     func addPastedText() {
         guard let text = NSPasteboard.general.string(forType: .string),
               !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
@@ -172,6 +187,9 @@ struct AIChatTabView: View {
     @StateObject private var model = AIChatModel()
     @AppStorage("ai.showHistory") private var showHistory = false
     @State private var showContext = true
+    @State private var isWritingContext = false
+    @State private var contextDraft = ""
+    @State private var contextName = ""
 
     var body: some View {
         let theme = themes.theme
@@ -208,7 +226,7 @@ struct AIChatTabView: View {
                 .padding(.horizontal, 8).padding(.bottom, 8)
             }
         }
-        .background(Color.white.opacity(0.03))
+        .background(theme.surfaceTint)
     }
 
     private func historyRow(_ conversation: Conversation, _ theme: Theme) -> some View {
@@ -368,8 +386,21 @@ struct AIChatTabView: View {
                 .disabled(model.isCapturing)
                 .help("Drag to select an area, exactly like ⇧⌘4")
 
+                Button {
+                    withAnimation(Motion.sheet) {
+                        isWritingContext.toggle()
+                        showContext = true
+                    }
+                } label: {
+                    Label("Text", systemImage: "text.alignleft")
+                        .font(.system(size: 10, weight: .medium))
+                }
+                .buttonStyle(NBButtonStyle(tint: theme.secondaryText,
+                                           filled: isWritingContext, compact: true))
+                .help("Type or paste context that is not a file")
+
                 Button { model.addPastedText() } label: {
-                    Label("Paste", systemImage: "doc.on.clipboard")
+                    Label("Clipboard", systemImage: "doc.on.clipboard")
                         .font(.system(size: 10, weight: .medium))
                 }
                 .buttonStyle(NBButtonStyle(tint: theme.secondaryText, compact: true))
@@ -384,15 +415,59 @@ struct AIChatTabView: View {
                 }
             }
 
-            if showContext && !model.attachments.isEmpty {
-                FlowRow(spacing: 5) {
-                    ForEach(model.attachments) { attachment in
-                        attachmentChip(attachment, theme)
+            if showContext {
+                if isWritingContext {
+                    textContextComposer(theme)
+                }
+
+                if model.attachments.isEmpty && !isWritingContext {
+                    // An expanded panel that renders nothing reads as a broken
+                    // button, which is exactly how this looked before.
+                    Text("Nothing attached. Files, a screenshot, typed text or the clipboard all travel with every turn in this conversation.")
+                        .font(.system(size: 9)).foregroundStyle(theme.secondaryText)
+                        .fixedSize(horizontal: false, vertical: true)
+                } else {
+                    FlowRow(spacing: 5) {
+                        ForEach(model.attachments) { attachment in
+                            attachmentChip(attachment, theme)
+                        }
                     }
                 }
             }
         }
         .padding(.horizontal, 12).padding(.bottom, 6)
+    }
+
+    private func textContextComposer(_ theme: Theme) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            NBTextField(placeholder: "Label (optional) — e.g. \"error output\"", text: $contextName)
+            TextEditor(text: $contextDraft)
+                .font(.system(size: 11))
+                .scrollContentBackground(.hidden)
+                .frame(height: 74)
+                .padding(6)
+                .background(RoundedRectangle(cornerRadius: 8).fill(theme.fieldBackground))
+            HStack {
+                Text("\(contextDraft.count) chars · about \(max(1, contextDraft.count / 4)) tokens")
+                    .font(.system(size: 9)).monospacedDigit()
+                    .foregroundStyle(theme.secondaryText)
+                Spacer()
+                Button("Cancel") {
+                    withAnimation(Motion.sheet) { isWritingContext = false }
+                    contextDraft = ""; contextName = ""
+                }
+                .buttonStyle(NBButtonStyle(tint: theme.secondaryText, compact: true))
+                Button("Attach") {
+                    model.addTextContext(contextDraft, name: contextName)
+                    contextDraft = ""; contextName = ""
+                    withAnimation(Motion.sheet) { isWritingContext = false }
+                }
+                .buttonStyle(NBButtonStyle(tint: theme.tint(.ai), filled: true, compact: true))
+                .disabled(contextDraft.trimmingCharacters(in: .whitespaces).isEmpty)
+            }
+        }
+        .padding(8)
+        .background(RoundedRectangle(cornerRadius: 9).fill(theme.cardBackground))
     }
 
     private func attachmentChip(_ attachment: ChatAttachment, _ theme: Theme) -> some View {
@@ -463,7 +538,7 @@ struct AIChatTabView: View {
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
                     .fill(message.role == .user
                           ? theme.tint(.ai).opacity(0.18)
-                          : Color.white.opacity(0.06)))
+                          : theme.fieldBackground))
             if message.role == .user { Spacer(minLength: 30) }
         }
         .frame(maxWidth: .infinity, alignment: message.role == .user ? .trailing : .leading)

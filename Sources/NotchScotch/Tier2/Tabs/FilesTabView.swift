@@ -192,7 +192,7 @@ struct FilesTabView: View {
                 // is what was actually written.
                 ZStack {
                     RoundedRectangle(cornerRadius: 5, style: .continuous)
-                        .fill(Color.white.opacity(0.06))
+                        .fill(theme.fieldBackground)
                     if let thumbnail = result.thumbnail {
                         Image(nsImage: thumbnail)
                             .resizable().aspectRatio(contentMode: .fit)
@@ -290,8 +290,8 @@ struct FilesTabView: View {
         let panel = NSOpenPanel()
         panel.allowsMultipleSelection = true
         panel.allowedContentTypes = [.image]
-        NSApp.activate(ignoringOtherApps: true)
-        guard panel.runModal() == .OK else { return }
+        let chose = NotchPanelController.shared.runningModal { panel.runModal() }
+        guard chose == .OK else { return }
         queue.append(contentsOf: panel.urls.filter { !queue.contains($0) })
         results = []
     }

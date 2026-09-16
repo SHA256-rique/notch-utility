@@ -526,7 +526,7 @@ struct LaunchWidget: View {
                             .font(.system(size: 11, weight: .medium))
                             .frame(width: 26, height: 26)
                             .foregroundStyle(theme.secondaryText)
-                            .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.07)))
+                            .background(RoundedRectangle(cornerRadius: 6).fill(theme.fieldBackground))
                     }
                     .buttonStyle(.plain)
                     .pointerCursor()
@@ -540,10 +540,10 @@ struct LaunchWidget: View {
         panel.allowedContentTypes = [.applicationBundle]
         panel.directoryURL = URL(fileURLWithPath: "/Applications")
         panel.allowsMultipleSelection = true
-        // The panel needs a real activation or it opens behind everything, since
-        // our panel is non-activating by design.
-        NSApp.activate(ignoringOtherApps: true)
-        guard panel.runModal() == .OK else { return }
+        // Our panel floats above ordinary windows and is non-activating, so the
+        // open panel needs both an activation and our level dropping.
+        let chose = NotchPanelController.shared.runningModal { panel.runModal() }
+        guard chose == .OK else { return }
         for url in panel.urls where !settings.data.launchShortcuts.contains(url.path) {
             settings.data.launchShortcuts.append(url.path)
         }
