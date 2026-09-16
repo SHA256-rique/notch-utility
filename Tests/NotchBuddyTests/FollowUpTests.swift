@@ -1049,3 +1049,62 @@ struct PresentationTests {
         #expect(decoded.orbPositions["display.1"] == CGPoint(x: 12.5, y: 34.25))
     }
 }
+
+
+// MARK: - Terminal panes
+
+@Suite("Terminal workspace")
+struct TerminalWorkspaceTests {
+
+    @Test("Every layout declares the pane count it draws")
+    func paneCounts() {
+        #expect(TerminalWorkspace.Layout.single.paneCount == 1)
+        #expect(TerminalWorkspace.Layout.columns.paneCount == 2)
+        #expect(TerminalWorkspace.Layout.rows.paneCount == 2)
+        #expect(TerminalWorkspace.Layout.mainLeft.paneCount == 3)
+        #expect(TerminalWorkspace.Layout.grid.paneCount == 4)
+    }
+
+    /// Four is the cap because at 880pt a fifth pane is under 50 columns, and
+    /// CLI output is written for 80.
+    @Test("Splitting walks up to four and then stops")
+    func splitChain() {
+        var layout = TerminalWorkspace.Layout.single
+        var counts: [Int] = [layout.paneCount]
+        while let next = layout.next {
+            layout = next
+            counts.append(layout.paneCount)
+        }
+        #expect(counts == [1, 2, 3, 4])
+        #expect(TerminalWorkspace.Layout.grid.next == nil)
+        #expect(TerminalWorkspace.maxPanes == 4)
+    }
+
+    /// Closing one pane out of a 2x2 grid must not also flip the two survivors
+    /// from stacked to side by side — that is a layout the user chose.
+    @Test("Reducing panes keeps a compatible layout where one exists")
+    func layoutForCount() {
+        #expect(TerminalWorkspace.layout(forPaneCount: 2, preferring: .rows) == .rows)
+        #expect(TerminalWorkspace.layout(forPaneCount: 2, preferring: .grid) == .columns)
+        #expect(TerminalWorkspace.layout(forPaneCount: 1, preferring: .grid) == .single)
+        #expect(TerminalWorkspace.layout(forPaneCount: 3, preferring: .grid) == .mainLeft)
+        // Already correct: leave it alone.
+        #expect(TerminalWorkspace.layout(forPaneCount: 4, preferring: .grid) == .grid)
+    }
+
+    @Test("Terminal.app is always an option")
+    func terminalAlwaysAvailable() {
+        let installed = TerminalWorkspace.installedTerminals()
+        #expect(installed.contains { $0.bundleID == "com.apple.Terminal" })
+        #expect(SettingsData().externalTerminalBundleID == "com.apple.Terminal")
+    }
+
+    @Test("Paths are shortened for a narrow pane title")
+    func abbreviation() {
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        #expect(TerminalTabView.abbreviate(home) == "~")
+        #expect(TerminalTabView.abbreviate(home + "/Documents") == "~/Documents")
+        #expect(TerminalTabView.abbreviate(home + "/a/b/c/d") == "…/c/d")
+        #expect(TerminalTabView.abbreviate("/usr/local/bin") == "/usr/local/bin")
+    }
+}

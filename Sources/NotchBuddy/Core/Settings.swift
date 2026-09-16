@@ -387,6 +387,9 @@ struct SettingsData: Codable {
 
     var terminalShell: String = ""                  // empty -> $SHELL, then /bin/zsh
     var keepTerminalAliveInBackground: Bool = false // off by default, per the brief
+    /// Where "Open in …" sends the focused pane. Terminal.app is always present,
+    /// so it is the only safe default.
+    var externalTerminalBundleID: String = "com.apple.Terminal"
 
     // MARK: Approvals
 

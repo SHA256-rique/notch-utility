@@ -80,7 +80,7 @@ enum TabID: String, Codable, CaseIterable, Identifiable, Hashable {
         case .calendar: return CGSize(width: 800, height: 470)   // agenda and month, side by side
         case .files:    return CGSize(width: 660, height: 440)
         case .api:      return CGSize(width: 720, height: 480)   // request above, response below
-        case .terminal: return CGSize(width: 820, height: 510)   // columns matter here more than anywhere
+        case .terminal: return CGSize(width: 880, height: 540)   // four panes still need ~60 columns each
         case .ai:       return CGSize(width: 680, height: 480)
         case .message:  return CGSize(width: 620, height: 400)
         case .settings: return CGSize(width: 700, height: 490)

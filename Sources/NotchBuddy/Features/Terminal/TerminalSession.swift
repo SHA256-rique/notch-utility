@@ -1,6 +1,7 @@
 import SwiftUI
 import AppKit
 import Combine
+import Darwin
 
 /// Binds a `PTY` to a `TerminalEmulator` and exposes a redraw signal to SwiftUI.
 ///
@@ -19,7 +20,11 @@ import Combine
 @MainActor
 final class TerminalSession: ObservableObject {
     /// Shared so that "keep alive in background" can actually outlive the view.
+    /// This is pane 1 of the workspace; further panes are ordinary instances.
     static let shared = TerminalSession()
+
+    /// Stable identity, so SwiftUI can tell four panes apart in a ForEach.
+    let id = UUID()
 
     @Published private(set) var generation = 0
     @Published private(set) var isRunning = false
@@ -31,7 +36,10 @@ final class TerminalSession: ObservableObject {
     /// Hook for the approval detector to observe the byte stream.
     var outputObserver: ((Data) -> Void)?
 
-    private init() {}
+    /// `private` until splits existed. A workspace of up to four panes needs to
+    /// create its own, and the singleton stays only because "keep alive in
+    /// background" has to outlive the view that made it.
+    init() {}
 
     func start(columns: Int, rows: Int) {
         guard !isRunning else {
@@ -89,6 +97,36 @@ final class TerminalSession: ObservableObject {
     /// `scheduleRedraw` exists to throttle *output*; a user-driven change should
     /// land on the next frame, not up to a frame later.
     func bumpGeneration() { generation &+= 1 }
+
+    /// The shell's current working directory, straight from the kernel.
+    ///
+    /// `proc_pidinfo` rather than parsing the prompt or shipping a shell hook:
+    /// the prompt is user-configurable and a hook would mean editing someone's
+    /// zshrc to support a feature they may never use. This asks the kernel what
+    /// the process's cwd actually is, which is both exact and free.
+    ///
+    /// It reports the *shell's* cwd, not a child's. Running `cd` inside `vim`'s
+    /// shell-out is not reflected, which is correct -- that directory is gone by
+    /// the time anyone asks.
+    var workingDirectory: String? {
+        guard pty.pid > 0 else { return nil }
+        var info = proc_vnodepathinfo()
+        let size = MemoryLayout<proc_vnodepathinfo>.size
+        let read = withUnsafeMutablePointer(to: &info) {
+            proc_pidinfo(pty.pid, PROC_PIDVNODEPATHINFO, 0, $0, Int32(size))
+        }
+        guard read == Int32(size) else { return nil }
+        var path = info.pvi_cdir.vip_path
+        let directory = withUnsafePointer(to: &path) {
+            $0.withMemoryRebound(to: CChar.self, capacity: Int(MAXPATHLEN)) { String(cString: $0) }
+        }
+        return directory.isEmpty ? nil : directory
+    }
+
+    /// Everything on screen and in scrollback, as plain text.
+    func transcript(lastLines: Int? = nil) -> String {
+        emulator.plainText(lastLines: lastLines)
+    }
 
     func send(_ text: String) { pty.write(text) }
     func send(_ data: Data) { pty.write(data) }

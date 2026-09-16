@@ -1,34 +1,36 @@
 import SwiftUI
 import AppKit
 
-/// Terminal: a real pty-backed shell, and the place the owned-pty approval path
-/// becomes available.
+/// Terminal: up to four real pty-backed shells, and the place the owned-pty
+/// approval path becomes available.
 ///
 /// ## The chrome
 /// The grid alone reads as a text dump pasted into a panel. What makes a
-/// terminal feel like a terminal is the frame around it: a title strip that says
-/// what shell you are in and how big it is, a cursor that blinks while focused
-/// and goes hollow when it is not, selectable text, and scrollback you can
-/// actually reach. Those are all here, and each is small -- but their absence is
-/// what "it doesn't feel like a terminal" actually means.
+/// terminal feel like a terminal is the frame around it: a title strip saying
+/// what shell you are in and where, a cursor that blinks while focused and goes
+/// hollow when it is not, selectable text, and scrollback you can reach.
 ///
-/// The one thing deliberately not copied from a real terminal emulator is tabs
-/// and splits. This is a 680pt panel hanging off a notch; a second pane would
-/// leave each one too narrow to run anything.
+/// ## Panes
+/// Splits are tmux-shaped but fixed: five presets covering everything worth
+/// arranging at this size, rather than an arbitrary pane tree that would need a
+/// splitter widget, drag-to-resize and a persistence format. See
+/// `TerminalWorkspace` for why four is the cap.
+///
+/// The approval detector attaches to the **focused** pane only. Watching all
+/// four would mean four pattern matchers against four byte streams, producing a
+/// badge that could not say which pane was blocked.
 struct TerminalTabView: View {
     @EnvironmentObject private var themes: ThemeManager
-    @ObservedObject private var session = TerminalSession.shared
+    @ObservedObject private var workspace = TerminalWorkspace.shared
     @ObservedObject private var center = ApprovalCenter.shared
+    @ObservedObject private var settings = Settings.shared
     @State private var showSetup = false
-    @State private var selection: TerminalSelection?
-    @State private var isFocused = false
     @State private var cursorOn = true
     @State private var blinkToken: UUID?
     @AppStorage("terminal.fontSize") private var fontSize: Double = 11
 
     /// A fixed monospaced metric. Measuring the advance once and laying out on a
-    /// strict grid is what lets the renderer be a single Canvas pass -- a
-    /// proportional or dynamically-measured font would force per-glyph layout.
+    /// strict grid is what lets each pane render in a single Canvas pass.
     private var font: NSFont {
         NSFont.monospacedSystemFont(ofSize: CGFloat(fontSize), weight: .regular)
     }
@@ -39,6 +41,8 @@ struct TerminalTabView: View {
     }
 
     private let gutter = CGSize(width: 8, height: 5)
+    private let titleBarHeight: CGFloat = 22
+    private let paneGap: CGFloat = 6
 
     var body: some View {
         let theme = themes.theme
@@ -52,82 +56,32 @@ struct TerminalTabView: View {
             }
 
             GeometryReader { geo in
-                let columns = max(20, Int((geo.size.width - gutter.width * 2) / cellSize.width))
-                let rows = max(4, Int((geo.size.height - titleBarHeight - gutter.height * 2) / cellSize.height))
-
-                VStack(spacing: 0) {
-                    titleBar(columns: columns, rows: rows, theme: theme)
-
-                    ZStack(alignment: .topLeading) {
-                        // A very slight vertical gradient rather than flat
-                        // black: it separates the terminal from the panel's own
-                        // dark background, which flat black does not.
-                        LinearGradient(colors: [Color.black.opacity(0.72), Color.black.opacity(0.58)],
-                                       startPoint: .top, endPoint: .bottom)
-
-                        TerminalGridView(session: session, font: font, cellSize: cellSize,
-                                         selection: $selection,
-                                         cursorOn: cursorOn, isFocused: isFocused)
-                            .padding(.leading, gutter.width)
-                            .padding(.top, gutter.height)
-                            .contentShape(Rectangle())
-                            .gesture(selectionGesture)
-
-                        TerminalKeyCatcher(
-                            session: session,
-                            selectedText: { selectedText() },
-                            onScroll: { session.emulator.scroll(by: $0); session.bumpGeneration() },
-                            onFocusChange: { isFocused = $0 },
-                            onFontStep: { step in
-                                fontSize = min(20, max(9, fontSize + Double(step)))
-                            })
-                            .frame(width: 0, height: 0)
-
-                        if session.emulator.isScrolledBack {
-                            jumpToBottom(theme)
-                        }
-
-                        if !session.isRunning {
-                            VStack(spacing: 8) {
-                                Text(session.exitMessage ?? "Starting shell…")
-                                    .font(.system(size: 11)).foregroundStyle(theme.secondaryText)
-                                if session.exitMessage != nil {
-                                    Button("Start a new session") {
-                                        session.start(columns: columns, rows: rows)
-                                        OwnedPTYDetector.shared.attach(to: session)
-                                    }
-                                    .buttonStyle(NBButtonStyle(tint: theme.tint(.terminal), filled: true))
-                                }
-                            }
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                            .background(Color.black.opacity(0.6))
-                        }
+                paneLayout(in: geo.size, theme: theme)
+                    .onAppear {
+                        workspace.startAll { paneMetrics(index: $0, in: geo.size).grid }
+                        OwnedPTYDetector.shared.attach(to: workspace.focusedPane)
+                        startBlink()
                     }
-                }
-                .onAppear {
-                    session.start(columns: columns, rows: rows)
-                    // Attaching the detector here -- not in the session -- keeps
-                    // the approval feature opt-in-by-presence: no Terminal tab
-                    // open means no pattern matching running.
-                    OwnedPTYDetector.shared.attach(to: session)
-                    startBlink()
-                }
-                .onChange(of: geo.size) {
-                    session.resize(columns: columns, rows: rows)
-                }
-                .onChange(of: fontSize) {
-                    session.resize(columns: columns, rows: rows)
-                }
+                    .onChange(of: geo.size) {
+                        workspace.resizeAll { paneMetrics(index: $0, in: geo.size).grid }
+                    }
+                    .onChange(of: fontSize) {
+                        workspace.resizeAll { paneMetrics(index: $0, in: geo.size).grid }
+                    }
+                    .onChange(of: workspace.layout) {
+                        // A new pane has to be started and every existing one
+                        // re-sized: splitting changes how many columns each has,
+                        // and a pty told the wrong width wraps in the wrong place.
+                        workspace.startAll { paneMetrics(index: $0, in: geo.size).grid }
+                        workspace.resizeAll { paneMetrics(index: $0, in: geo.size).grid }
+                    }
+                    .onChange(of: workspace.focused) {
+                        OwnedPTYDetector.shared.detach()
+                        OwnedPTYDetector.shared.attach(to: workspace.focusedPane)
+                    }
             }
-            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .stroke(isFocused ? theme.tint(.terminal).opacity(0.45) : theme.panelStroke,
-                            lineWidth: 1)
-            )
             .padding(.horizontal, 8)
             .padding(.top, 8)
-            .animation(Motion.tabSwitch, value: isFocused)
 
             statusBar(theme)
 
@@ -141,140 +95,217 @@ struct TerminalTabView: View {
         .onDisappear {
             stopBlink()
             OwnedPTYDetector.shared.detach()
-            // Honours the "keep alive in background" setting internally; by
-            // default this kills the process group and frees the buffers.
-            session.stop()
+            // Honours "keep alive in background" for the first pane only.
+            workspace.stopAll()
         }
     }
 
-    // MARK: - Chrome
+    // MARK: - Layout
 
-    private let titleBarHeight: CGFloat = 22
+    /// Frames for each pane, in the terminal area's own coordinates.
+    ///
+    /// Computed rather than expressed as nested stacks because each pane needs
+    /// its own pixel size to work out its column and row count, and SwiftUI
+    /// will not tell a child what it was given until after layout.
+    private func paneFrames(in size: CGSize) -> [CGRect] {
+        let w = size.width, h = size.height
 
-    private func titleBar(columns: Int, rows: Int, theme: Theme) -> some View {
+        switch workspace.layout {
+        case .single:
+            return [CGRect(x: 0, y: 0, width: w, height: h)]
+
+        case .columns:
+            let paneWidth = (w - paneGap) / 2
+            return [CGRect(x: 0, y: 0, width: paneWidth, height: h),
+                    CGRect(x: paneWidth + paneGap, y: 0, width: paneWidth, height: h)]
+
+        case .rows:
+            let paneHeight = (h - paneGap) / 2
+            return [CGRect(x: 0, y: 0, width: w, height: paneHeight),
+                    CGRect(x: 0, y: paneHeight + paneGap, width: w, height: paneHeight)]
+
+        case .mainLeft:
+            // 56/44 rather than half and half: the main pane is the one you are
+            // working in and the other two are things you are watching.
+            let mainWidth = (w - paneGap) * 0.56
+            let sideWidth = w - mainWidth - paneGap
+            let sideHeight = (h - paneGap) / 2
+            return [CGRect(x: 0, y: 0, width: mainWidth, height: h),
+                    CGRect(x: mainWidth + paneGap, y: 0, width: sideWidth, height: sideHeight),
+                    CGRect(x: mainWidth + paneGap, y: sideHeight + paneGap,
+                           width: sideWidth, height: sideHeight)]
+
+        case .grid:
+            let paneWidth = (w - paneGap) / 2
+            let paneHeight = (h - paneGap) / 2
+            return (0..<4).map { index in
+                CGRect(x: index % 2 == 0 ? 0 : paneWidth + paneGap,
+                       y: index < 2 ? 0 : paneHeight + paneGap,
+                       width: paneWidth, height: paneHeight)
+            }
+        }
+    }
+
+    private func paneMetrics(index: Int, in size: CGSize) -> (frame: CGRect, grid: (columns: Int, rows: Int)) {
+        let frames = paneFrames(in: size)
+        let frame = frames.indices.contains(index) ? frames[index] : CGRect(origin: .zero, size: size)
+        let columns = max(20, Int((frame.width - gutter.width * 2) / cellSize.width))
+        let rows = max(4, Int((frame.height - titleBarHeight - gutter.height * 2) / cellSize.height))
+        return (frame, (columns, rows))
+    }
+
+    private func paneLayout(in size: CGSize, theme: Theme) -> some View {
+        let frames = paneFrames(in: size)
+        return ZStack(alignment: .topLeading) {
+            ForEach(Array(workspace.panes.enumerated()), id: \.element.id) { index, pane in
+                let frame = frames.indices.contains(index) ? frames[index] : .zero
+                paneView(pane, index: index, theme: theme)
+                    .frame(width: max(1, frame.width), height: max(1, frame.height))
+                    .offset(x: frame.minX, y: frame.minY)
+            }
+        }
+        .frame(width: size.width, height: size.height, alignment: .topLeading)
+        .animation(Motion.sheet, value: workspace.layout)
+    }
+
+    // MARK: - One pane
+
+    private func paneView(_ pane: TerminalSession, index: Int, theme: Theme) -> some View {
+        let isFocused = workspace.focused == index
+        let split = workspace.panes.count > 1
+        return VStack(spacing: 0) {
+            paneTitleBar(pane, index: index, isFocused: isFocused, theme: theme)
+            TerminalPaneBody(pane: pane, font: font, cellSize: cellSize,
+                             gutter: gutter, isFocused: isFocused, cursorOn: cursorOn,
+                             onFocus: { workspace.focused = index },
+                             onFontStep: { fontSize = min(20, max(9, fontSize + Double($0))) })
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 9, style: .continuous)
+                .stroke(isFocused ? theme.tint(.terminal).opacity(split ? 0.7 : 0.45) : theme.panelStroke,
+                        lineWidth: isFocused && split ? 1.5 : 1)
+        )
+        .contentShape(Rectangle())
+        .onTapGesture { workspace.focused = index }
+        .animation(Motion.tabSwitch, value: isFocused)
+    }
+
+    private func paneTitleBar(_ pane: TerminalSession, index: Int,
+                              isFocused: Bool, theme: Theme) -> some View {
         HStack(spacing: 6) {
-            Circle().fill(session.isRunning ? Color.green : Color.gray)
+            Circle().fill(pane.isRunning ? Color.green : Color.gray)
                 .frame(width: 6, height: 6)
-                .themeGlow(session.isRunning ? .green : .clear, radius: theme.glowRadius(4))
+                .themeGlow(pane.isRunning ? .green : .clear, radius: theme.glowRadius(4))
             Text(shellName)
                 .font(.system(size: 10, weight: .medium, design: .monospaced))
-                .foregroundStyle(theme.primaryText.opacity(0.85))
-            Text("\(columns)×\(rows)")
-                .font(.system(size: 9, design: .monospaced))
-                .foregroundStyle(theme.secondaryText)
-            Spacer()
-
-            if selection != nil {
-                Button("Copy") { copySelection() }
-                    .buttonStyle(NBButtonStyle(tint: theme.tint(.terminal), compact: true))
+                .foregroundStyle(theme.primaryText.opacity(isFocused ? 0.9 : 0.55))
+            if let directory = pane.workingDirectory {
+                Text(Self.abbreviate(directory))
+                    .font(.system(size: 9, design: .monospaced))
+                    .foregroundStyle(theme.secondaryText)
+                    .lineLimit(1).truncationMode(.head)
             }
+            Spacer(minLength: 2)
 
-            Button {
-                fontSize = max(9, fontSize - 1)
-            } label: { Image(systemName: "textformat.size.smaller").font(.system(size: 9)) }
-                .buttonStyle(.plain).pointerCursor().foregroundStyle(theme.secondaryText)
-                .help("Smaller text (⌘−)")
-            Button {
-                fontSize = min(20, fontSize + 1)
-            } label: { Image(systemName: "textformat.size.larger").font(.system(size: 9)) }
-                .buttonStyle(.plain).pointerCursor().foregroundStyle(theme.secondaryText)
-                .help("Larger text (⌘+)")
+            if workspace.panes.count > 1 {
+                Button {
+                    workspace.closePane(at: index)
+                } label: { Image(systemName: "xmark").font(.system(size: 8, weight: .bold)) }
+                    .buttonStyle(.plain).pointerCursor()
+                    .foregroundStyle(theme.secondaryText)
+                    .help("Close this pane")
+            }
         }
-        .padding(.horizontal, 9)
+        .padding(.horizontal, 8)
         .frame(height: titleBarHeight)
-        .background(Color.white.opacity(0.05))
+        .background(Color.white.opacity(isFocused ? 0.07 : 0.03))
         .overlay(alignment: .bottom) {
             Rectangle().fill(theme.panelStroke).frame(height: 0.5)
         }
     }
 
-    private func jumpToBottom(_ theme: Theme) -> some View {
-        VStack {
-            Spacer()
-            HStack {
-                Spacer()
-                Button {
-                    session.emulator.scrollToBottom()
-                    session.bumpGeneration()
-                } label: {
-                    Label("Jump to bottom", systemImage: "arrow.down.to.line")
-                        .font(.system(size: 10, weight: .medium))
-                }
-                .buttonStyle(NBButtonStyle(tint: theme.tint(.terminal), filled: true, compact: true))
-                .padding(8)
-            }
-        }
-        .transition(.opacity)
-    }
+    // MARK: - Status bar
 
     private func statusBar(_ theme: Theme) -> some View {
         HStack(spacing: 6) {
-            Text(session.emulator.isScrolledBack
-                 ? "Scrolled back — new output is still arriving below"
-                 : "Approvals from agents run here are intercepted at the pty")
-                .font(.system(size: 9)).foregroundStyle(theme.secondaryText)
-            Spacer()
-            Button(showSetup ? "Hide setup" : "Approval setup") {
+            Picker("", selection: Binding(
+                get: { workspace.layout },
+                set: { workspace.setLayout($0) })) {
+                ForEach(TerminalWorkspace.Layout.allCases) { layout in
+                    Image(systemName: layout.symbol).tag(layout)
+                }
+            }
+            .pickerStyle(.segmented).labelsHidden().frame(width: 180)
+            .help("Pane layout")
+
+            Button {
+                workspace.split()
+            } label: {
+                Image(systemName: "plus.rectangle").font(.system(size: 10, weight: .medium))
+            }
+            .buttonStyle(NBButtonStyle(tint: theme.tint(.terminal), compact: true))
+            .disabled(!workspace.canSplit)
+            .help(workspace.canSplit
+                  ? "Add a pane"
+                  : "Four is the limit — below that each pane is too narrow to read a stack trace")
+
+            Divider().frame(height: 14).overlay(theme.panelStroke)
+
+            Button {
+                workspace.handOffToExternalTerminal()
+            } label: {
+                Label("Open in \(externalTerminalName)", systemImage: "arrow.up.forward.app")
+                    .font(.system(size: 10, weight: .medium))
+            }
+            .buttonStyle(NBButtonStyle(tint: theme.tint(.terminal), compact: true))
+            .help("Opens the focused pane's directory there, and copies its scrollback to the clipboard")
+
+            Picker("", selection: $settings.data.externalTerminalBundleID) {
+                ForEach(TerminalWorkspace.installedTerminals()) { terminal in
+                    Text(terminal.name).tag(terminal.bundleID)
+                }
+            }
+            .labelsHidden().frame(width: 92)
+
+            Spacer(minLength: 4)
+
+            Button(showSetup ? "Hide setup" : "Approvals") {
                 withAnimation(Motion.sheet) { showSetup.toggle() }
             }
             .buttonStyle(NBButtonStyle(tint: theme.tint(.approval), compact: true))
-            Button("Restart") { session.forceStop() }
+            Button("Restart") { workspace.focusedPane.forceStop() }
                 .buttonStyle(NBButtonStyle(tint: theme.secondaryText, compact: true))
         }
         .padding(.horizontal, 12).padding(.vertical, 6)
     }
 
+    private var externalTerminalName: String {
+        TerminalWorkspace.knownTerminals
+            .first { $0.bundleID == settings.data.externalTerminalBundleID }?.name ?? "Terminal"
+    }
+
     private var shellName: String {
-        let configured = Settings.shared.data.terminalShell
+        let configured = settings.data.terminalShell
         let path = configured.isEmpty ? (ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh") : configured
         return URL(fileURLWithPath: path).lastPathComponent
     }
 
-    // MARK: - Selection
-
-    /// Drag to select. `minimumDistance: 2` so a plain click -- which is how you
-    /// focus the terminal -- clears the selection instead of creating a
-    /// zero-width one that then blocks ctrl-C.
-    private var selectionGesture: some Gesture {
-        DragGesture(minimumDistance: 2)
-            .onChanged { value in
-                let anchor = position(at: value.startLocation)
-                let head = position(at: value.location)
-                selection = TerminalSelection(anchor: anchor, head: head)
-            }
-            .simultaneously(with: TapGesture().onEnded { selection = nil })
-    }
-
-    private func position(at point: CGPoint) -> TerminalEmulator.Position {
-        let emulator = session.emulator
-        let row = Int((point.y - gutter.height) / cellSize.height)
-        let column = Int((point.x - gutter.width) / cellSize.width)
-        return TerminalEmulator.Position(
-            line: max(0, emulator.firstVisibleLineIndex + max(0, min(emulator.rows - 1, row))),
-            column: max(0, min(emulator.columns - 1, column)))
-    }
-
-    private func selectedText() -> String? {
-        guard let selection, !selection.isEmpty else { return nil }
-        let text = session.emulator.text(from: selection.start, to: selection.end)
-        return text.isEmpty ? nil : text
-    }
-
-    private func copySelection() {
-        guard let text = selectedText() else { return }
-        ClipboardWatcher.shared.suppressNextChange()
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(text, forType: .string)
-        NotchArbiter.shared.flash("Copied", symbol: "doc.on.doc.fill",
-                                  module: .terminal, detail: "\(text.count) chars")
+    /// `~/Documents/notch-utility`, and only the tail when even that is long.
+    /// A pane title bar can be 200pt wide in a four-way split.
+    static func abbreviate(_ path: String) -> String {
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        let shortened = path.hasPrefix(home) ? "~" + path.dropFirst(home.count) : path
+        let parts = shortened.split(separator: "/")
+        guard parts.count > 3 else { return shortened }
+        return "…/" + parts.suffix(2).joined(separator: "/")
     }
 
     // MARK: - Cursor blink
 
-    /// The blink is a hub registration like everything else, so it is torn down
-    /// with the tab and cannot become a timer that outlives the view. 0.53s is
-    /// the rate VT100 hardware used and every terminal since has copied; it is
-    /// slow enough not to read as a flicker.
+    /// One registration for every pane, not one each: they should blink in
+    /// phase, and four registrations at 0.53s is four times the wakeups for an
+    /// effect that is visually identical.
     private func startBlink() {
         guard blinkToken == nil else { return }
         blinkToken = WidgetPollingHub.shared.register(label: "terminal-cursor", interval: 0.53) {
@@ -286,5 +317,112 @@ struct TerminalTabView: View {
         WidgetPollingHub.shared.unregister(blinkToken)
         blinkToken = nil
         cursorOn = true
+    }
+}
+
+/// One pane's terminal surface: background, grid, key catcher, scroll affordance.
+///
+/// Split out of `TerminalTabView` because each pane owns its own selection.
+/// `@State` in the parent would have made that shared, so dragging in one pane
+/// would have highlighted the same cells in all four.
+struct TerminalPaneBody: View {
+    @EnvironmentObject private var themes: ThemeManager
+    @ObservedObject var pane: TerminalSession
+    let font: NSFont
+    let cellSize: CGSize
+    let gutter: CGSize
+    let isFocused: Bool
+    let cursorOn: Bool
+    let onFocus: () -> Void
+    let onFontStep: (Int) -> Void
+
+    @State private var selection: TerminalSelection?
+
+    var body: some View {
+        let theme = themes.theme
+        ZStack(alignment: .topLeading) {
+            // A very slight vertical gradient rather than flat black: it
+            // separates the terminal from the panel's own dark background,
+            // which flat black does not.
+            LinearGradient(colors: [Color.black.opacity(0.72), Color.black.opacity(0.58)],
+                           startPoint: .top, endPoint: .bottom)
+
+            TerminalGridView(session: pane, font: font, cellSize: cellSize,
+                             selection: $selection,
+                             cursorOn: cursorOn, isFocused: isFocused)
+                .padding(.leading, gutter.width)
+                .padding(.top, gutter.height)
+                .contentShape(Rectangle())
+                .gesture(selectionGesture)
+
+            // Only the focused pane takes keystrokes. Four key catchers fighting
+            // over first responder is a pane that silently stops accepting input.
+            if isFocused {
+                TerminalKeyCatcher(
+                    session: pane,
+                    selectedText: { selectedText() },
+                    onScroll: { pane.emulator.scroll(by: $0); pane.bumpGeneration() },
+                    onFocusChange: { if $0 { onFocus() } },
+                    onFontStep: onFontStep)
+                    .frame(width: 0, height: 0)
+            }
+
+            if pane.emulator.isScrolledBack {
+                VStack {
+                    Spacer()
+                    HStack {
+                        Spacer()
+                        Button {
+                            pane.emulator.scrollToBottom()
+                            pane.bumpGeneration()
+                        } label: {
+                            Label("Jump to bottom", systemImage: "arrow.down.to.line")
+                                .font(.system(size: 10, weight: .medium))
+                        }
+                        .buttonStyle(NBButtonStyle(tint: theme.tint(.terminal), filled: true, compact: true))
+                        .padding(8)
+                    }
+                }
+                .transition(.opacity)
+            }
+
+            if !pane.isRunning {
+                Text(pane.exitMessage ?? "Starting shell…")
+                    .font(.system(size: 11)).foregroundStyle(theme.secondaryText)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(Color.black.opacity(0.6))
+            }
+        }
+    }
+
+    /// Drag to select. `minimumDistance: 2` so a plain click -- which is how you
+    /// focus a pane -- clears the selection instead of creating a zero-width one
+    /// that then swallows ctrl-C.
+    private var selectionGesture: some Gesture {
+        DragGesture(minimumDistance: 2)
+            .onChanged { value in
+                onFocus()
+                selection = TerminalSelection(anchor: position(at: value.startLocation),
+                                              head: position(at: value.location))
+            }
+            .simultaneously(with: TapGesture().onEnded {
+                selection = nil
+                onFocus()
+            })
+    }
+
+    private func position(at point: CGPoint) -> TerminalEmulator.Position {
+        let emulator = pane.emulator
+        let row = Int((point.y - gutter.height) / cellSize.height)
+        let column = Int((point.x - gutter.width) / cellSize.width)
+        return TerminalEmulator.Position(
+            line: max(0, emulator.firstVisibleLineIndex + max(0, min(emulator.rows - 1, row))),
+            column: max(0, min(emulator.columns - 1, column)))
+    }
+
+    private func selectedText() -> String? {
+        guard let selection, !selection.isEmpty else { return nil }
+        let text = pane.emulator.text(from: selection.start, to: selection.end)
+        return text.isEmpty ? nil : text
     }
 }
